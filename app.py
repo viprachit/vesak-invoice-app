@@ -181,17 +181,14 @@ def normalize_columns(df, aliases):
 
 def transform_onedrive_url(url):
     """
-    Attempts to convert a OneDrive/SharePoint viewing URL into a direct download URL.
+    Cleans up a OneDrive URL to ensure it forces a download.
+    Removes tracking parameters like '?e=xyz'.
     """
-    # Fix for standard OneDrive "view.aspx" links
-    if "view.aspx" in url:
-        return url.replace("view.aspx", "download.aspx")
+    # 1. Remove everything after '?' (strips the ?e=OOJMqd part)
+    clean_url = url.split('?')[0]
     
-    # Fix for "1drv.ms" or other links - try appending download=1
-    if "?" in url:
-        return url + "&download=1"
-    else:
-        return url + "?download=1"
+    # 2. Append the Force Download command
+    return clean_url + "?download=1"
 
 # ==========================================
 # 4. APP INTERFACE & FILE LOGIC
@@ -206,6 +203,7 @@ with st.sidebar:
     )
 
 raw_file_obj = None
+load_error = None
 
 # --- OPTION 1: UPLOAD ---
 if data_source == "Upload File":
@@ -218,9 +216,9 @@ if data_source == "Upload File":
 elif data_source == "OneDrive Web URL":
     st.caption("Works Online & Offline (Requires Internet)")
     current_url = load_config_path(URL_CONFIG_FILE)
-    url_input = st.text_input("Paste OneDrive Link:", value=current_url, placeholder="https://onedrive.live.com/...")
+    url_input = st.text_input("Paste OneDrive Link:", value=current_url, placeholder="https://1drv.ms/x/c/...")
     
-    st.info("⚠️ **Important:** This link must be public ('Anyone with the link can edit/view').")
+    st.info("⚠️ **Note:** Ensure link permissions are set to 'Anyone with the link'.")
     
     if st.button("Load URL"):
         if url_input:
@@ -230,11 +228,12 @@ elif data_source == "OneDrive Web URL":
     if current_url:
         try:
             download_url = transform_onedrive_url(current_url)
-            # We treat the URL string as the file object for pandas
-            raw_file_obj = download_url 
+            # CRITICAL FIX: Pass 'storage_options' to spoof a browser user-agent
+            # This prevents the 401 Unauthorized error
+            raw_file_obj = download_url
             st.success("✅ Linked to OneDrive")
-        except:
-            st.error("Invalid URL format.")
+        except Exception as e:
+            load_error = str(e)
 
 # --- OPTION 3: LOCAL PATH ---
 elif data_source == "Local Path (Offline Only)":
@@ -255,41 +254,51 @@ elif data_source == "Local Path (Offline Only)":
 # --- PROCESS DATA ---
 if raw_file_obj:
     try:
+        # Define browser headers to trick OneDrive
+        browser_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
         sheet_name = 0
         is_excel = False
+        
         try:
-            # For URLs, pandas reads directly. xl.sheet_names works if we read it into memory first or pass the URL
-            # To be robust with URLs, we just try reading it.
-            if isinstance(raw_file_obj, str) and "http" in raw_file_obj:
-                 # It's a URL, Pandas handles it, but ExcelFile might need bytes if we want sheet names
-                 # Let's just try reading default first to check connection
-                 is_excel = True
-                 # If we really need sheet selection for URL, we'd need to download bytes first using requests.
-                 # For simplicity in this structure, we assume default sheet or try to read header directly.
-            else:
-                xl = pd.ExcelFile(raw_file_obj)
-                is_excel = True
-                sheet_names = xl.sheet_names
-                default_ix = 0
-                if 'Confirmed' in sheet_names: default_ix = sheet_names.index('Confirmed')
-                with st.sidebar:
-                    st.divider()
-                    st.write("🔧 **Excel Settings**")
-                    selected_sheet = st.selectbox("Select Sheet:", sheet_names, index=default_ix)
-                sheet_name = selected_sheet
-        except:
-            pass 
-
-        if is_excel:
-            # If it's a sheet name selection on local file/upload
-            if not isinstance(raw_file_obj, str) or "http" not in raw_file_obj:
-                df = pd.read_excel(raw_file_obj, sheet_name=sheet_name)
-            else:
-                # For URL, simple read (defaults to first sheet usually unless we download bytes)
-                # To keep it simple for the user URL input:
-                df = pd.read_excel(raw_file_obj) 
-        else:
+            # If it's a string (URL or Path)
             if isinstance(raw_file_obj, str):
+                if "http" in raw_file_obj:
+                    # Web URL: Use storage_options
+                    xl = pd.ExcelFile(raw_file_obj, storage_options=browser_headers)
+                else:
+                    # Local Path
+                    xl = pd.ExcelFile(raw_file_obj)
+            else:
+                # Uploaded file object
+                xl = pd.ExcelFile(raw_file_obj)
+                
+            is_excel = True
+            sheet_names = xl.sheet_names
+            
+            default_ix = 0
+            if 'Confirmed' in sheet_names: default_ix = sheet_names.index('Confirmed')
+            with st.sidebar:
+                st.divider()
+                st.write("🔧 **Excel Settings**")
+                selected_sheet = st.selectbox("Select Sheet:", sheet_names, index=default_ix)
+            sheet_name = selected_sheet
+        except:
+            pass # Might be CSV
+
+        # READ DATA
+        if is_excel:
+            if isinstance(raw_file_obj, str) and "http" in raw_file_obj:
+                df = pd.read_excel(raw_file_obj, sheet_name=sheet_name, storage_options=browser_headers)
+            else:
+                df = pd.read_excel(raw_file_obj, sheet_name=sheet_name)
+        else:
+            # CSV Reading
+            if isinstance(raw_file_obj, str) and "http" in raw_file_obj:
+                df = pd.read_csv(raw_file_obj, storage_options=browser_headers)
+            elif isinstance(raw_file_obj, str):
                 df = pd.read_csv(raw_file_obj)
             else:
                 raw_file_obj.seek(0)
