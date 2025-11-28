@@ -1,0 +1,372 @@
+import streamlit as st
+import pandas as pd
+import re
+import os
+from io import BytesIO
+from xhtml2pdf import pisa
+import streamlit.components.v1 as components
+
+# ==========================================
+# 1. SETUP & CONFIGURATION
+# ==========================================
+st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="🏥")
+
+CONFIG_FILE = "path_config.txt"
+
+def load_config_path():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            return f.read().strip()
+    return ""
+
+def save_config_path(path):
+    clean_path = path.replace('"', '').strip()
+    with open(CONFIG_FILE, "w") as f:
+        f.write(clean_path)
+    return clean_path
+
+# ==========================================
+# 2. BRAIN: SERVICE DATA & RULES
+# ==========================================
+
+SERVICES_MASTER = {
+    "Plan A: Patient Attendant Care": [
+        "All", "Basic Care", "Assistance with Activities for Daily Living",
+        "Feeding & Oral Hygiene", "Mobility Support & Transfers",
+        "Bed Bath and Emptying Bedpans and Changing Diapers",
+        "Catheter & Ostomy Care (If Attendant Knows)"
+    ],
+    "Plan B: Skilled Nursing": [
+        "All", "Intravenous (IV) Therapy & Injections",
+        "Medication Management & Administration", "Advanced Wound Care & Dressing",
+        "Catheter & Ostomy Care", "Post-Surgical Care"
+    ],
+    "Plan C: Chronic Management": [
+        "All", "Care for Bed-Ridden Patients", "Dementia & Alzheimer's Care",
+        "Disability Support & Assistance"
+    ],
+    "Plan D: Elderly Companion": [
+        "All", "Companionship & Conversation", "Fall Prevention & Mobility Support",
+        "Light Meal Preparation"
+    ],
+    "Plan E: Maternal & Newborn": [
+        "All", "Postnatal & Maternal Care", "Newborn Care Assistance"
+    ],
+    "Plan F: Rehabilitative Care": [
+        "Therapeutic Massage", "Exercise Therapy", "Geriatic (Old Age) Rehabilitation",
+        "Neuro Rehabilitaion",
+        "Pain - Back | Leg | Knee | Foot | Shoulder | Ankle | Elbow | Wrist | Neck",
+        "Post Operative Rehabilitation"
+    ],
+    "A-la-carte Services": [
+        "Hospital Visits", "Medical Equipment Rental",
+        "Medicines (Alopathy, Ayurvedic, Homeopathy)", "Diagnostic Services at Home",
+        "Nutrition & Dietetic Consultation", "Ambulance", "Doctor Visits",
+        "X-Ray", "Blood Collection"
+    ]
+}
+
+STANDARD_PLANS = [
+    "Plan A: Patient Attendant Care",
+    "Plan B: Skilled Nursing",
+    "Plan C: Chronic Management",
+    "Plan D: Elderly Companion",
+    "Plan E: Maternal & Newborn"
+]
+
+PLAN_DISPLAY_NAMES = {
+    "Plan A: Patient Attendant Care": "Patient Care",
+    "Plan B: Skilled Nursing": "Nursing Care",
+    "Plan C: Chronic Management": "Chronic Management Care",
+    "Plan D: Elderly Companion": "Elderly Companion Care",
+    "Plan E: Maternal & Newborn": "Maternal & Newborn Care",
+    "Plan F: Rehabilitative Care": "Rehabilitative Care",
+    "A-la-carte Services": "Other Services"
+}
+
+# --- STRICT ALIASES ---
+COLUMN_ALIASES = {
+    'Name': ['Name', 'name', 'patient name', 'client name', 'patient', 'client'],
+    'Mobile': ['Mobile', 'mobile', 'phone', 'contact', 'mobile no', 'cell'],
+    'Address': ['Address', 'address', 'location', 'city', 'residence'],
+    'Service Required': ['Service Required', 'service required', 'plan', 'service', 'service name', 'inquiry'],
+    'Sub Service': ['Sub Service', 'sub service', 'sub plan', 'services'],
+    'Final Rate': ['Final Rate', 'final rate', 'final amount', 'amount'] 
+}
+
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+
+def clean_text(text):
+    if not isinstance(text, str): return str(text)
+    text = re.sub(r'\(.*?\)', '', text)
+    text = re.sub(r'\bAll\b,?', '', text, flags=re.IGNORECASE)
+    text = text.replace(' ,', ',').strip(' ,')
+    return text.strip()
+
+def get_base_lists(selected_plan, selected_sub_service):
+    master_list = SERVICES_MASTER.get(selected_plan, [])
+    
+    # INCLUDED
+    if "All" in str(selected_sub_service) and selected_plan in STANDARD_PLANS:
+        included_raw = [s for s in master_list if s.lower() != "all"]
+    else:
+        included_raw = [x.strip() for x in str(selected_sub_service).split(',')]
+    included_clean = sorted(list(set([clean_text(s) for s in included_raw if clean_text(s)])))
+    
+    # NOT INCLUDED
+    not_included_clean = []
+    if selected_plan in STANDARD_PLANS:
+        for plan_name in STANDARD_PLANS:
+            if plan_name == selected_plan: continue 
+            services = SERVICES_MASTER.get(plan_name, [])
+            for item in services:
+                if item.lower() == "all": continue
+                cleaned = clean_text(item)
+                if cleaned: not_included_clean.append(cleaned)
+    else:
+        for item in master_list:
+            cleaned = clean_text(item)
+            if cleaned and cleaned not in included_clean:
+                not_included_clean.append(cleaned)
+    return included_clean, list(set(not_included_clean))
+
+def chunk_list(data, num_chunks):
+    chunks = [[] for _ in range(num_chunks)]
+    for i, item in enumerate(data):
+        chunks[i % num_chunks].append(item)
+    return chunks
+
+def make_html_list(items):
+    if not items: return ""
+    return "".join([f'<div style="margin-bottom:3px; font-size:10px;">• {x}</div>' for x in items])
+
+def convert_html_to_pdf(source_html):
+    result = BytesIO()
+    pisa_status = pisa.CreatePDF(source_html, dest=result)
+    if pisa_status.err: return None
+    return result.getvalue()
+
+def normalize_columns(df, aliases):
+    # 1. Clean current headers
+    df.columns = df.columns.astype(str).str.strip()
+    
+    for standard_name, possible_aliases in aliases.items():
+        # Check if standard name is ALREADY in the dataframe (Exact match)
+        if standard_name in df.columns:
+            continue 
+        
+        # If not found, look through aliases
+        match_found = False
+        for alias in possible_aliases:
+            for df_col in df.columns:
+                if df_col.lower() == alias.lower():
+                    df.rename(columns={df_col: standard_name}, inplace=True)
+                    match_found = True
+                    break 
+            if match_found:
+                break 
+                
+    return df
+
+# ==========================================
+# 4. APP INTERFACE & FILE LOGIC
+# ==========================================
+st.title("🏥 Vesak Care - Invoice Generator")
+
+with st.sidebar:
+    st.header("📂 Data Source")
+    data_source = st.radio("Load Method:", ["Upload File", "OneDrive Path"])
+
+# --- LOAD RAW DATA ---
+raw_file_obj = None
+
+if data_source == "Upload File":
+    uploaded_file = st.file_uploader("Upload Excel/CSV", type=['xlsx', 'csv'])
+    if uploaded_file:
+        raw_file_obj = uploaded_file
+
+elif data_source == "OneDrive Path":
+    current_path = load_config_path()
+    path_input = st.text_input("Full File Path:", value=current_path)
+    if st.button("Save Path"):
+        if path_input:
+            save_config_path(path_input)
+            st.experimental_rerun()
+    
+    current_path = load_config_path()
+    if current_path and os.path.exists(current_path):
+        raw_file_obj = current_path
+    elif current_path:
+        st.warning("Path not found.")
+
+# --- PROCESS DATA ---
+if raw_file_obj:
+    try:
+        # Determine Sheet
+        sheet_name = 0
+        is_excel = False
+        
+        try:
+            xl = pd.ExcelFile(raw_file_obj)
+            is_excel = True
+            sheet_names = xl.sheet_names
+            
+            # Auto-select 'Confirmed'
+            default_ix = 0
+            if 'Confirmed' in sheet_names: default_ix = sheet_names.index('Confirmed')
+            
+            with st.sidebar:
+                st.divider()
+                st.write("🔧 **Excel Settings**")
+                selected_sheet = st.selectbox("Select Sheet:", sheet_names, index=default_ix)
+            sheet_name = selected_sheet
+        except:
+            pass # CSV
+
+        # Read Data
+        if is_excel:
+            df = pd.read_excel(raw_file_obj, sheet_name=sheet_name)
+        else:
+            if isinstance(raw_file_obj, str):
+                df = pd.read_csv(raw_file_obj)
+            else:
+                raw_file_obj.seek(0)
+                df = pd.read_csv(raw_file_obj)
+
+        # Normalize Columns
+        df = normalize_columns(df, COLUMN_ALIASES)
+        
+        # Verify Critical Columns
+        missing = [k for k in COLUMN_ALIASES.keys() if k not in df.columns]
+        
+        if missing:
+            st.error(f"❌ Missing Columns: {missing}")
+            st.warning("Please ensure your sheet has headers like 'Name', 'Mobile', 'Final Rate'.")
+            st.subheader("Raw Columns Found:")
+            st.write(df.columns.tolist())
+            st.stop()
+
+        # --- SUCCESS ---
+        st.success("✅ Data Loaded Successfully")
+        
+        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+        selected_label = st.selectbox("Select Customer:", df['Label'].unique())
+
+        row = df[df['Label'] == selected_label].iloc[0]
+        c_plan = row.get('Service Required', '')
+        c_sub = row.get('Sub Service', '')
+        inc_default, exc_default = get_base_lists(c_plan, c_sub)
+
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            display_name = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
+            st.info(f"**Plan:** {display_name}")
+            st.write("**Included:**")
+            for item in inc_default: st.markdown(f"- {item}")
+
+        with col2:
+            st.write("**Not Included (Editable):**")
+            final_excluded = st.multiselect("Modify List:", options=exc_default + ["Others"], default=exc_default)
+
+        if st.button("Generate Invoice Preview"):
+            c_name = row.get('Name', '')
+            c_addr = row.get('Address', '')
+            c_mob = row.get('Mobile', '')
+            
+            # --- FIX FOR RATE ---
+            # Ensure we only get one value, and ensure it is 'Final Rate'
+            raw_rate = row.get('Final Rate', 0)
+            if isinstance(raw_rate, pd.Series):
+                c_rate = raw_rate.iloc[0]
+            else:
+                c_rate = raw_rate
+            
+            final_plan_name = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
+
+            inc_cols = chunk_list(inc_default, 2)
+            exc_cols = chunk_list(final_excluded, 3)
+
+            invoice_body = f"""
+            <div style="font-family: Helvetica, Arial, sans-serif; padding: 20px;">
+                <table width="100%" border="0">
+                    <tr>
+                        <td width="60%">
+                            <div style="font-size: 22px; font-weight: bold; color: #2c3e50;">VESAK CARE FOUNDATION</div>
+                            <div style="color: #555; font-size: 12px; margin-top: 5px;">
+                                Pune, Maharashtra<br>Phone: +91 12345 67890<br>Email: info@vesakcare.com
+                            </div>
+                        </td>
+                        <td width="40%" style="text-align: right;">
+                            <div style="font-size: 28px; font-weight: bold; color: #95a5a6;">INVOICE</div>
+                            <div style="font-size: 12px; margin-top: 5px;">
+                                <b>Date:</b> {pd.Timestamp.now().strftime('%d-%b-%Y')}<br>
+                                <b>Invoice #:</b> {pd.Timestamp.now().strftime('%Y%m%d')}-001
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+                <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+                <div style="background-color: #f8f9fa; border-left: 4px solid #2c3e50; padding: 15px; border-radius: 4px;">
+                    <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                        <tr>
+                            <td width="50%" valign="top" style="padding-right: 20px; border-right: 1px solid #ddd;">
+                                <div style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px;">Billed To</div>
+                                <div style="font-size: 15px; font-weight: bold; color: #2c3e50;">{c_name}</div>
+                                <div style="margin-top: 8px;">
+                                    <span style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase;">Contact</span><br>
+                                    <span style="font-size: 13px; color: #555;">{c_mob}</span>
+                                </div>
+                            </td>
+                            <td width="50%" valign="top" style="padding-left: 20px;">
+                                <div style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px;">Address</div>
+                                <div style="font-size: 13px; color: #555; line-height: 1.4;">{c_addr}</div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                <br>
+                <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #2c3e50; color: white;">
+                            <th align="left" style="padding: 10px; font-size: 13px;">Description</th>
+                            <th align="right" style="padding: 10px; font-size: 13px;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 15px; font-size: 14px;"><b>{final_plan_name}</b></td>
+                            <td align="right" style="border: 1px solid #ddd; padding: 15px; font-size: 14px;">₹{c_rate}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div style="margin-top: 20px; border-bottom: 2px solid #3498db; color: #2c3e50; font-weight: bold; font-size: 13px; text-transform: uppercase;">Services Includes</div>
+                <table width="100%" border="0" style="margin-top: 5px;">
+                    <tr>
+                        <td width="50%" valign="top">{make_html_list(inc_cols[0])}</td>
+                        <td width="50%" valign="top">{make_html_list(inc_cols[1])}</td>
+                    </tr>
+                </table>
+                <div style="margin-top: 20px; border-bottom: 2px solid #95a5a6; color: #7f8c8d; font-weight: bold; font-size: 13px; text-transform: uppercase;">Services Not Included</div>
+                <table width="100%" border="0" style="margin-top: 5px; color: #777;">
+                    <tr>
+                        <td width="33%" valign="top">{make_html_list(exc_cols[0])}</td>
+                        <td width="33%" valign="top">{make_html_list(exc_cols[1])}</td>
+                        <td width="33%" valign="top">{make_html_list(exc_cols[2])}</td>
+                    </tr>
+                </table>
+                <br><br>
+                <div style="text-align: center; font-size: 11px; color: #aaa; margin-top: 20px;">Thank you for choosing Vesak Care Foundation!</div>
+            </div>
+            """
+            st.markdown("### 👁️ Live Preview")
+            components.html(invoice_body, height=800, scrolling=True)
+            full_pdf_html = f"""<html><head><style>@page {{ size: A4; margin: 30px; }} body {{ font-family: Helvetica, Arial, sans-serif; }}</style></head><body>{invoice_body}</body></html>"""
+            pdf_bytes = convert_html_to_pdf(full_pdf_html)
+            if pdf_bytes:
+                st.download_button(label="📄 Download PDF Invoice", data=pdf_bytes, file_name=f"Invoice_{c_name.replace(' ', '_')}.pdf", mime="application/pdf")
+
+    except Exception as e:
+        st.error(f"Something went wrong: {e}")
