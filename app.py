@@ -4,7 +4,9 @@ import re
 import os
 import datetime
 import requests
+import base64
 import ssl
+import traceback
 from io import BytesIO
 from xhtml2pdf import pisa
 import streamlit.components.v1 as components
@@ -16,6 +18,7 @@ st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="�
 
 CONFIG_FILE = "path_config.txt"
 URL_CONFIG_FILE = "url_config.txt"
+LOGO_FILE = "logo.png"
 
 def load_config_path(file_name):
     if os.path.exists(file_name):
@@ -30,7 +33,16 @@ def save_config_path(path, file_name):
     return clean_path
 
 # ==========================================
-# 2. BRAIN: SERVICE DATA & RULES
+# 2. IMAGE HANDLING
+# ==========================================
+def get_image_base64(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode('utf-8')
+    return None
+
+# ==========================================
+# 3. BRAIN: SERVICE DATA & RULES
 # ==========================================
 
 SERVICES_MASTER = {
@@ -95,11 +107,12 @@ COLUMN_ALIASES = {
     'Service Required': ['Service Required', 'service required', 'plan', 'service', 'service name', 'inquiry'],
     'Sub Service': ['Sub Service', 'sub service', 'sub plan', 'services'],
     'Final Rate': ['Final Rate', 'final rate', 'final amount', 'amount'],
-    'Call Date': ['Call Date', 'call date', 'date', 'inquiry date']
+    'Call Date': ['Call Date', 'call date', 'date', 'inquiry date'],
+    'Notes': ['Notes / Remarks', 'notes', 'remarks', 'comment', 'comments', 'description']
 }
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==========================================
 
 def clean_text(text):
@@ -182,97 +195,77 @@ def normalize_columns(df, aliases):
     return df
 
 def robust_file_downloader(url):
-    """
-    Downloads file into memory, handling redirects and SSL errors.
-    """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    # 1. Transform URL for Download if needed
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     download_url = url
     if "1drv.ms" in url or "onedrive.live.com" in url:
-        # Remove existing query params
         base_url = url.split('?')[0]
         download_url = base_url + "?download=1"
-
-    # 2. Download with SSL Verification DISABLED
-    # This fixes the "Certificate Verify Failed" error on Desktop
     response = requests.get(download_url, headers=headers, allow_redirects=True, verify=False)
-    
     if response.status_code == 200:
         return BytesIO(response.content)
     else:
         raise Exception(f"Failed to download. Status Code: {response.status_code}")
 
 # ==========================================
-# 4. APP INTERFACE & FILE LOGIC
+# 5. APP INTERFACE & FILE LOGIC
 # ==========================================
 st.title("🏥 Vesak Care - Invoice Generator")
 
+# Check for Logo
+logo_b64 = get_image_base64(LOGO_FILE)
+if not logo_b64:
+    st.sidebar.warning("⚠️ 'logo.png' not found in folder.")
+
 with st.sidebar:
     st.header("📂 Data Source")
-    data_source = st.radio(
-        "Load Method:", 
-        ["Upload File", "OneDrive Web URL", "Local Path (Offline Only)"]
-    )
+    data_source = st.radio("Load Method:", ["Upload File", "OneDrive Web URL", "Local Path (Offline Only)"])
 
 raw_file_obj = None
 
-# --- OPTION 1: UPLOAD ---
 if data_source == "Upload File":
-    st.caption("Best for Mobile / Travel")
     uploaded_file = st.file_uploader("Upload Excel/CSV", type=['xlsx', 'csv'])
     if uploaded_file:
         raw_file_obj = uploaded_file
 
-# --- OPTION 2: ONEDRIVE URL ---
 elif data_source == "OneDrive Web URL":
-    st.caption("Works Online & Offline (Requires Internet)")
     current_url = load_config_path(URL_CONFIG_FILE)
-    url_input = st.text_input("Paste OneDrive Link:", value=current_url, placeholder="https://1drv.ms/...")
-    
+    url_input = st.text_input("Paste OneDrive Link:", value=current_url)
     if st.button("Load URL"):
         if url_input:
             save_config_path(url_input, URL_CONFIG_FILE)
             st.rerun()
-            
     if current_url:
         try:
-            # Use the new Robust Downloader
             raw_file_obj = robust_file_downloader(current_url)
             st.success("✅ Connected to OneDrive")
         except Exception as e:
             st.error(f"Download Error: {e}")
 
-# --- OPTION 3: LOCAL PATH ---
 elif data_source == "Local Path (Offline Only)":
-    st.caption("Fastest for Desktop")
     current_path = load_config_path(CONFIG_FILE)
     path_input = st.text_input("Full File Path:", value=current_path)
-    
     if st.button("Save Path"):
         if path_input:
             save_config_path(path_input, CONFIG_FILE)
             st.rerun()
-    
     if current_path and os.path.exists(current_path):
         raw_file_obj = current_path
     elif current_path:
-        st.warning("Path not found on this machine.")
+        st.warning("Path not found.")
 
-# --- PROCESS DATA ---
 if raw_file_obj:
     try:
         sheet_name = 0
         is_excel = False
-        
-        # 1. READ EXCEL (Force Engine)
-        # We explicitly assume it is Excel first to solve the "Error Tokenizing" CSV error
         try:
             xl = pd.ExcelFile(raw_file_obj)
             is_excel = True
             sheet_names = xl.sheet_names
+            
+            # Reset pointer
+            if hasattr(raw_file_obj, 'seek'):
+                raw_file_obj.seek(0)
+
             default_ix = 0
             if 'Confirmed' in sheet_names: default_ix = sheet_names.index('Confirmed')
             with st.sidebar:
@@ -281,21 +274,18 @@ if raw_file_obj:
                 selected_sheet = st.selectbox("Select Sheet:", sheet_names, index=default_ix)
             sheet_name = selected_sheet
         except:
-            # If Excel fails, try CSV
             pass 
 
         if is_excel:
             df = pd.read_excel(raw_file_obj, sheet_name=sheet_name)
         else:
-            # Fallback for CSV
-            if isinstance(raw_file_obj, str): # Path string
+            if isinstance(raw_file_obj, str):
                 df = pd.read_csv(raw_file_obj)
-            else: # BytesIO object
+            else:
                 raw_file_obj.seek(0)
                 df = pd.read_csv(raw_file_obj)
 
         df = normalize_columns(df, COLUMN_ALIASES)
-        
         missing = [k for k in ['Name', 'Mobile', 'Final Rate', 'Service Required'] if k not in df.columns]
         if missing:
             st.error(f"❌ Missing Columns: {missing}")
@@ -312,6 +302,12 @@ if raw_file_obj:
         c_call_date = row.get('Call Date', 'N/A')
         formatted_ref_date = format_date_with_suffix(c_call_date)
         
+        c_notes_raw = row.get('Notes', '')
+        if pd.isna(c_notes_raw) or str(c_notes_raw).lower() == 'nan':
+            c_notes_raw = ""
+        else:
+            c_notes_raw = str(c_notes_raw)
+
         inc_default, exc_default = get_base_lists(c_plan, c_sub)
 
         st.divider()
@@ -327,7 +323,7 @@ if raw_file_obj:
         with col_d2:
             st.write("") 
             st.write("") 
-            st.caption(f"ℹ️ **Excel Reference Date:** {formatted_ref_date}")
+            st.caption(f"ℹ️ **Excel Reference:** {formatted_ref_date}")
 
         st.divider()
 
@@ -342,42 +338,66 @@ if raw_file_obj:
 
         with col2:
             st.write("**❌ Services Not Included (Editable):**")
-            final_excluded = st.multiselect(
-                "Add/Remove Items:", 
-                options=exc_default + ["Others"], 
-                default=exc_default
-            )
+            final_excluded = st.multiselect("Modify List:", options=exc_default + ["Others"], default=exc_default)
+
+        st.write("---")
+        invoice_notes = st.text_area("✍️ **Notes / Remarks (Editable):**", value=c_notes_raw, height=100)
 
         if st.button("Generate Invoice Preview"):
             c_name = row.get('Name', '')
             c_addr = row.get('Address', '')
             c_mob = row.get('Mobile', '')
-            
             raw_rate = row.get('Final Rate', 0)
-            if isinstance(raw_rate, pd.Series):
-                c_rate = raw_rate.iloc[0]
-            else:
-                c_rate = raw_rate
+            c_rate = raw_rate.iloc[0] if isinstance(raw_rate, pd.Series) else raw_rate
             
             final_plan_name = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
             inc_cols = chunk_list(inc_default, 2)
             exc_cols = chunk_list(final_excluded, 3)
-
             formatted_date = format_date_with_suffix(invoice_date)
             invoice_num_date = invoice_date.strftime('%Y%m%d')
 
+            logo_html = ""
+            watermark_html = ""
+            if logo_b64:
+                logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height: 60px; object-fit: contain;">'
+                watermark_html = f"""<div id="watermark"><img src="data:image/png;base64,{logo_b64}" style="width: 500px; opacity: 0.1;"></div>"""
+
+            notes_html = ""
+            if invoice_notes:
+                notes_html = f"""<div style="background-color: #fcfcfc; border: 1px solid #eee; padding: 10px; margin-top: 20px; font-size: 11px; color: #555;"><b>NOTES:</b><br>{invoice_notes.replace(chr(10), '<br>')}</div>"""
+
+            # HTML STRUCTURE (Fixed - Footer moved to HTML body)
             invoice_body = f"""
-            <div style="font-family: Helvetica, Arial, sans-serif; padding: 20px;">
-                <table width="100%" border="0">
+            <html>
+            <head>
+                <style>
+                    @page {{
+                        size: A4;
+                        margin: 30px;
+                        margin-bottom: 50px;
+                    }}
+                    body {{ font-family: Helvetica, Arial, sans-serif; color: #333; }}
+                    #watermark {{ position: fixed; top: 30%; left: 15%; opacity: 0.1; z-index: -1000; transform: rotate(-30deg); width: 100%; text-align: center; }}
+                    .header-table {{ width: 100%; border: 0; }}
+                    .bill-to-box {{ background-color: #f8f9fa; border-left: 4px solid #2c3e50; padding: 15px; }}
+                    .service-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+                    .service-table th {{ background-color: #2c3e50; color: white; padding: 10px; text-align: left; }}
+                    .service-table td {{ border: 1px solid #ddd; padding: 12px; }}
+                    .section-title {{ margin-top: 20px; border-bottom: 2px solid #ccc; font-weight: bold; font-size: 13px; text-transform: uppercase; color: #2c3e50; }}
+                    .footer {{ text-align: center; font-size: 10px; color: #777; margin-top: 50px; border-top: 1px solid #eee; padding-top: 10px; }}
+                </style>
+            </head>
+            <body>
+                {watermark_html}
+                <table class="header-table">
                     <tr>
-                        <td width="60%">
-                            <div style="font-size: 22px; font-weight: bold; color: #2c3e50;">VESAK CARE FOUNDATION</div>
-                            <div style="color: #555; font-size: 12px; margin-top: 5px;">
-                                Pune, Maharashtra<br>Phone: +91 12345 67890<br>Email: info@vesakcare.com
-                            </div>
+                        <td width="60%" valign="top">
+                            {logo_html}
+                            <div style="font-size: 20px; font-weight: bold; color: #2c3e50; margin-top: 5px;">VESAK CARE FOUNDATION</div>
+                            <div style="color: #555; font-size: 11px;">Pune, Maharashtra<br>Reg No: 123456789</div>
                         </td>
-                        <td width="40%" style="text-align: right;">
-                            <div style="font-size: 28px; font-weight: bold; color: #95a5a6;">INVOICE</div>
+                        <td width="40%" align="right" valign="top">
+                            <div style="font-size: 32px; font-weight: bold; color: #95a5a6;">INVOICE</div>
                             <div style="font-size: 12px; margin-top: 5px;">
                                 <b>Date:</b> {formatted_date}<br>
                                 <b>Invoice #:</b> {invoice_num_date}-001
@@ -385,65 +405,72 @@ if raw_file_obj:
                         </td>
                     </tr>
                 </table>
-                <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
-                <div style="background-color: #f8f9fa; border-left: 4px solid #2c3e50; padding: 15px; border-radius: 4px;">
-                    <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                <hr style="border: 0; border-top: 2px solid #eee; margin: 15px 0;">
+                <div class="bill-to-box">
+                    <table width="100%">
                         <tr>
-                            <td width="50%" valign="top" style="padding-right: 20px; border-right: 1px solid #ddd;">
-                                <div style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px;">Billed To</div>
-                                <div style="font-size: 15px; font-weight: bold; color: #2c3e50;">{c_name}</div>
-                                <div style="margin-top: 8px;">
-                                    <span style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase;">Contact</span><br>
-                                    <span style="font-size: 13px; color: #555;">{c_mob}</span>
-                                </div>
+                            <td width="50%" valign="top">
+                                <div style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase;">Billed To</div>
+                                <div style="font-size: 15px; font-weight: bold; margin-top: 2px;">{c_name}</div>
+                                <div style="font-size: 12px; margin-top: 5px;">📞 {c_mob}</div>
                             </td>
                             <td width="50%" valign="top" style="padding-left: 20px;">
-                                <div style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px;">Address</div>
-                                <div style="font-size: 13px; color: #555; line-height: 1.4;">{c_addr}</div>
+                                <div style="color: #95a5a6; font-size: 9px; font-weight: bold; text-transform: uppercase;">Address</div>
+                                <div style="font-size: 12px; margin-top: 2px; line-height: 1.4;">{c_addr}</div>
                             </td>
                         </tr>
                     </table>
                 </div>
                 <br>
-                <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
+                <table class="service-table">
                     <thead>
-                        <tr style="background-color: #2c3e50; color: white;">
-                            <th align="left" style="padding: 10px; font-size: 13px;">Description</th>
-                            <th align="right" style="padding: 10px; font-size: 13px;">Amount</th>
+                        <tr>
+                            <th width="75%">Description</th>
+                            <th width="25%" align="right">Amount</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td style="border: 1px solid #ddd; padding: 15px; font-size: 14px;"><b>{final_plan_name}</b></td>
-                            <td align="right" style="border: 1px solid #ddd; padding: 15px; font-size: 14px;">₹{c_rate}</td>
+                            <td><b>{final_plan_name}</b></td>
+                            <td align="right">₹{c_rate}</td>
                         </tr>
                     </tbody>
                 </table>
-                <div style="margin-top: 20px; border-bottom: 2px solid #3498db; color: #2c3e50; font-weight: bold; font-size: 13px; text-transform: uppercase;">Services Includes</div>
-                <table width="100%" border="0" style="margin-top: 5px;">
+                
+                <div class="section-title" style="border-color: #3498db;">Services Includes</div>
+                <table width="100%" style="font-size: 11px; margin-top: 5px;">
                     <tr>
                         <td width="50%" valign="top">{make_html_list(inc_cols[0])}</td>
                         <td width="50%" valign="top">{make_html_list(inc_cols[1])}</td>
                     </tr>
                 </table>
-                <div style="margin-top: 20px; border-bottom: 2px solid #95a5a6; color: #7f8c8d; font-weight: bold; font-size: 13px; text-transform: uppercase;">Services Not Included</div>
-                <table width="100%" border="0" style="margin-top: 5px; color: #777;">
+
+                <div class="section-title" style="border-color: #95a5a6; color: #7f8c8d;">Services Not Included</div>
+                <table width="100%" style="font-size: 10px; color: #666; margin-top: 5px;">
                     <tr>
                         <td width="33%" valign="top">{make_html_list(exc_cols[0])}</td>
                         <td width="33%" valign="top">{make_html_list(exc_cols[1])}</td>
                         <td width="33%" valign="top">{make_html_list(exc_cols[2])}</td>
                     </tr>
                 </table>
-                <br><br>
-                <div style="text-align: center; font-size: 11px; color: #aaa; margin-top: 20px;">Thank you for choosing Vesak Care Foundation!</div>
-            </div>
+
+                {notes_html}
+
+                <div class="footer">
+                    Vesak Care Foundation | Pune, Maharashtra | +91 12345 67890 | info@vesakcare.com
+                </div>
+            </body>
+            </html>
             """
+
             st.markdown("### 👁️ Live Preview")
             components.html(invoice_body, height=800, scrolling=True)
-            full_pdf_html = f"""<html><head><style>@page {{ size: A4; margin: 30px; }} body {{ font-family: Helvetica, Arial, sans-serif; }}</style></head><body>{invoice_body}</body></html>"""
-            pdf_bytes = convert_html_to_pdf(full_pdf_html)
+            
+            pdf_bytes = convert_html_to_pdf(invoice_body)
             if pdf_bytes:
                 st.download_button(label="📄 Download PDF Invoice", data=pdf_bytes, file_name=f"Invoice_{c_name.replace(' ', '_')}.pdf", mime="application/pdf")
 
     except Exception as e:
         st.error(f"Something went wrong: {e}")
+        st.write("Detailed Error for Debugging:")
+        st.code(traceback.format_exc())
