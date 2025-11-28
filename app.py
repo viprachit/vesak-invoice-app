@@ -3,6 +3,8 @@ import pandas as pd
 import re
 import os
 import datetime
+import requests
+import ssl
 from io import BytesIO
 from xhtml2pdf import pisa
 import streamlit.components.v1 as components
@@ -179,16 +181,29 @@ def normalize_columns(df, aliases):
                 break 
     return df
 
-def transform_onedrive_url(url):
+def robust_file_downloader(url):
     """
-    Cleans up a OneDrive URL to ensure it forces a download.
-    Removes tracking parameters like '?e=xyz'.
+    Downloads file into memory, handling redirects and SSL errors.
     """
-    # 1. Remove everything after '?' (strips the ?e=OOJMqd part)
-    clean_url = url.split('?')[0]
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     
-    # 2. Append the Force Download command
-    return clean_url + "?download=1"
+    # 1. Transform URL for Download if needed
+    download_url = url
+    if "1drv.ms" in url or "onedrive.live.com" in url:
+        # Remove existing query params
+        base_url = url.split('?')[0]
+        download_url = base_url + "?download=1"
+
+    # 2. Download with SSL Verification DISABLED
+    # This fixes the "Certificate Verify Failed" error on Desktop
+    response = requests.get(download_url, headers=headers, allow_redirects=True, verify=False)
+    
+    if response.status_code == 200:
+        return BytesIO(response.content)
+    else:
+        raise Exception(f"Failed to download. Status Code: {response.status_code}")
 
 # ==========================================
 # 4. APP INTERFACE & FILE LOGIC
@@ -203,7 +218,6 @@ with st.sidebar:
     )
 
 raw_file_obj = None
-load_error = None
 
 # --- OPTION 1: UPLOAD ---
 if data_source == "Upload File":
@@ -216,9 +230,7 @@ if data_source == "Upload File":
 elif data_source == "OneDrive Web URL":
     st.caption("Works Online & Offline (Requires Internet)")
     current_url = load_config_path(URL_CONFIG_FILE)
-    url_input = st.text_input("Paste OneDrive Link:", value=current_url, placeholder="https://1drv.ms/x/c/...")
-    
-    st.info("⚠️ **Note:** Ensure link permissions are set to 'Anyone with the link'.")
+    url_input = st.text_input("Paste OneDrive Link:", value=current_url, placeholder="https://1drv.ms/...")
     
     if st.button("Load URL"):
         if url_input:
@@ -227,13 +239,11 @@ elif data_source == "OneDrive Web URL":
             
     if current_url:
         try:
-            download_url = transform_onedrive_url(current_url)
-            # CRITICAL FIX: Pass 'storage_options' to spoof a browser user-agent
-            # This prevents the 401 Unauthorized error
-            raw_file_obj = download_url
-            st.success("✅ Linked to OneDrive")
+            # Use the new Robust Downloader
+            raw_file_obj = robust_file_downloader(current_url)
+            st.success("✅ Connected to OneDrive")
         except Exception as e:
-            load_error = str(e)
+            st.error(f"Download Error: {e}")
 
 # --- OPTION 3: LOCAL PATH ---
 elif data_source == "Local Path (Offline Only)":
@@ -254,30 +264,15 @@ elif data_source == "Local Path (Offline Only)":
 # --- PROCESS DATA ---
 if raw_file_obj:
     try:
-        # Define browser headers to trick OneDrive
-        browser_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-
         sheet_name = 0
         is_excel = False
         
+        # 1. READ EXCEL (Force Engine)
+        # We explicitly assume it is Excel first to solve the "Error Tokenizing" CSV error
         try:
-            # If it's a string (URL or Path)
-            if isinstance(raw_file_obj, str):
-                if "http" in raw_file_obj:
-                    # Web URL: Use storage_options
-                    xl = pd.ExcelFile(raw_file_obj, storage_options=browser_headers)
-                else:
-                    # Local Path
-                    xl = pd.ExcelFile(raw_file_obj)
-            else:
-                # Uploaded file object
-                xl = pd.ExcelFile(raw_file_obj)
-                
+            xl = pd.ExcelFile(raw_file_obj)
             is_excel = True
             sheet_names = xl.sheet_names
-            
             default_ix = 0
             if 'Confirmed' in sheet_names: default_ix = sheet_names.index('Confirmed')
             with st.sidebar:
@@ -286,21 +281,16 @@ if raw_file_obj:
                 selected_sheet = st.selectbox("Select Sheet:", sheet_names, index=default_ix)
             sheet_name = selected_sheet
         except:
-            pass # Might be CSV
+            # If Excel fails, try CSV
+            pass 
 
-        # READ DATA
         if is_excel:
-            if isinstance(raw_file_obj, str) and "http" in raw_file_obj:
-                df = pd.read_excel(raw_file_obj, sheet_name=sheet_name, storage_options=browser_headers)
-            else:
-                df = pd.read_excel(raw_file_obj, sheet_name=sheet_name)
+            df = pd.read_excel(raw_file_obj, sheet_name=sheet_name)
         else:
-            # CSV Reading
-            if isinstance(raw_file_obj, str) and "http" in raw_file_obj:
-                df = pd.read_csv(raw_file_obj, storage_options=browser_headers)
-            elif isinstance(raw_file_obj, str):
+            # Fallback for CSV
+            if isinstance(raw_file_obj, str): # Path string
                 df = pd.read_csv(raw_file_obj)
-            else:
+            else: # BytesIO object
                 raw_file_obj.seek(0)
                 df = pd.read_csv(raw_file_obj)
 
@@ -456,5 +446,4 @@ if raw_file_obj:
                 st.download_button(label="📄 Download PDF Invoice", data=pdf_bytes, file_name=f"Invoice_{c_name.replace(' ', '_')}.pdf", mime="application/pdf")
 
     except Exception as e:
-        st.error(f"Connection Error: {e}")
-        st.warning("Ensure the URL is a direct download link or 'Anyone with link can view'.")
+        st.error(f"Something went wrong: {e}")
