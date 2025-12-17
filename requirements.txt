@@ -4,5 +4,6 @@ openpyxl
 requests
 Pillow
 xhtml2pdf
+reportlab
 gspread
 google-auth
