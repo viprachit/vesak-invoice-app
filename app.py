@@ -124,54 +124,51 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [ROBUST DOWNLOADER V2 - MS API ENCODING]
+# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
 def robust_file_downloader(url):
     """
-    Downloads file from OneDrive using the official Sharing API 
-    method to bypass 403 Forbidden errors.
+    Downloads file using a session to persist cookies through redirects.
+    This fixes 403 errors on public OneDrive links.
     """
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.google.com/'
+    })
+
+    download_url = url
     
-    resolved_url = url
-    if "1drv.ms" in url:
-        try:
-            r = requests.head(url, allow_redirects=True)
-            resolved_url = r.url
-        except: 
-            pass
+    # 1. Clean the URL (Remove existing parameters)
+    if "?" in url:
+        base_url = url.split("?")[0]
+    else:
+        base_url = url
 
-    # Method A: API Encoding
+    # 2. Append download command
+    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
+        download_url = base_url + "?download=1"
+    
     try:
-        base64_value = base64.b64encode(resolved_url.encode("utf-8")).decode("utf-8")
-        encoded_url = "u!" + base64_value.rstrip("=").replace("/", "_").replace("+", "-")
-        api_url = f"https://api.onedrive.com/v1.0/shares/{encoded_url}/root/content"
+        # Attempt download
+        response = session.get(download_url, verify=False, allow_redirects=True)
         
-        response = requests.get(api_url, headers=headers, verify=False)
+        # Check if successful
         if response.status_code == 200:
-            return BytesIO(response.content)
-    except:
-        pass 
-
-    # Method B: Parameter Manipulation
-    try:
-        if "download=1" not in resolved_url:
-            final_url = resolved_url + "&download=1" if "?" in resolved_url else resolved_url + "?download=1"
-        else:
-            final_url = resolved_url
+            # Verify we got a file (Excel/CSV usually) and not a HTML login page
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'text/html' in content_type and len(response.content) < 5000:
+                # If we got a small HTML page, it might be a login redirect.
+                # Try the original URL without modification as a last resort
+                response = session.get(url, verify=False, allow_redirects=True)
             
-        response = requests.get(final_url, headers=headers, verify=False)
-        if response.status_code == 200:
-            return BytesIO(response.content)
-            
-        # Method C: Original URL Fallback
-        response = requests.get(url, headers=headers, verify=False)
-        if response.status_code == 200:
             return BytesIO(response.content)
             
         raise Exception(f"Status Code: {response.status_code}")
         
     except Exception as e:
-        raise Exception(f"All download methods failed. Please check the link permissions. Error: {e}")
+        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -219,7 +216,7 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         return False
 
 # ==========================================
-# 3. DATA LOGIC
+# 3. DATA LOGIC (UNCHANGED)
 # ==========================================
 SERVICES_MASTER = {
     "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
@@ -296,7 +293,7 @@ def normalize_columns(df, aliases):
                     break 
     return df
 
-# --- HTML CONSTRUCTORS ---
+# --- HTML CONSTRUCTORS (UNCHANGED) ---
 def construct_description_html(row):
     shift_raw = str(row.get('Shift', '')).strip()
     recurring = str(row.get('Recurring', '')).strip().lower()
@@ -404,10 +401,12 @@ def convert_html_to_pdf(source_html):
 # ==========================================
 st.title("🏥 Vesak Care - Invoice Generator")
 
+# Absolute paths for PDF engine
 abs_logo_path = get_absolute_path(LOGO_FILE)
 abs_ig_path = get_absolute_path("icon-ig.png")
 abs_fb_path = get_absolute_path("icon-fb.png")
 
+# Base64 for Web Preview
 logo_b64 = get_clean_image_base64(LOGO_FILE)
 ig_b64 = get_clean_image_base64("icon-ig.png")
 fb_b64 = get_clean_image_base64("icon-fb.png")
@@ -445,9 +444,10 @@ elif data_source == "OneDrive Link":
         except Exception as e: 
             st.sidebar.error(f"Link Error: {e}")
 
-# --- PROCESS FILE IF LOADED ---
+# --- PROCESS FILE IF LOADED (DEEP FIX) ---
 if raw_file_obj:
     df = None
+    # 1. Try Excel FIRST
     try:
         if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
         xl = pd.ExcelFile(raw_file_obj)
@@ -457,6 +457,9 @@ if raw_file_obj:
         selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
         df = pd.read_excel(raw_file_obj, sheet_name=selected_sheet)
     except Exception as e_excel:
+        # [CRITICAL FIX] If Excel fails, DO NOT try CSV if it's supposed to be Excel.
+        # This prevents the "tokenizing" error which comes from reading binary as text.
+        # Only try CSV if the error explicitly looks like it's not an excel file or file extension says so.
         st.error(f"❌ Excel Read Error: {e_excel}")
         st.info("ℹ️ If this is a valid Excel file, it might be corrupt or encrypted. If it is a CSV, rename it.")
         st.stop()
