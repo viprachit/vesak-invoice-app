@@ -4,11 +4,13 @@ import base64
 import os
 import datetime
 import requests
+import math 
 from io import BytesIO
 from PIL import Image, ImageFile
 import streamlit.components.v1 as components
-from xhtml2pdf import pisa
-from streamlit_gsheets import GSheetsConnection
+from xhtml2pdf import pisa 
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- CRITICAL FIX FOR BROKEN IMAGES ---
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -20,11 +22,40 @@ st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="�
 
 LOGO_FILE = "logo.png"
 
-# --- CONNECT TO GOOGLE SHEETS ---
-# This looks for the [connections.gsheets] section in your Secrets
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- CONNECT TO GOOGLE SHEETS (NEW CODE) ---
+def get_google_sheet_client():
+    """Connects to Google Sheets using the standard gspread library."""
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    try:
+        # Read from the [connections.gsheets] section in your Secrets
+        s_info = st.secrets["connections"]["gsheets"]
+        
+        creds_dict = {
+            "type": s_info["type"],
+            "project_id": s_info["project_id"],
+            "private_key_id": s_info["private_key_id"],
+            "private_key": s_info["private_key"],
+            "client_email": s_info["client_email"],
+            "client_id": s_info["client_id"],
+            "auth_uri": s_info["auth_uri"],
+            "token_uri": s_info["token_uri"],
+            "auth_provider_x509_cert_url": s_info["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": s_info["client_x509_cert_url"],
+        }
+        
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(credentials)
+        # Open the sheet by the URL found in secrets
+        sheet = client.open_by_url(s_info["spreadsheet"])
+        return sheet.sheet1 # Opens the first sheet
+    except Exception as e:
+        st.error(f"Connection Error: {e}")
+        return None
 
-# --- AUTO-DOWNLOAD ICONS (Reliable Method) ---
+# --- AUTO-DOWNLOAD ICONS ---
 def download_and_save_icon(url, filename):
     if not os.path.exists(filename):
         try:
@@ -38,7 +69,6 @@ def download_and_save_icon(url, filename):
             return False
     return True
 
-# Public URLs for standard icons
 IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
 FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
 
@@ -75,56 +105,53 @@ def format_date_with_suffix(d):
         return d.strftime(f"%b. {day}{suffix} %Y")
     except: return str(d)
 
-# --- GOOGLE SHEETS DATABASE FUNCTIONS ---
+# --- GOOGLE SHEETS DATABASE FUNCTIONS (NEW CODE) ---
 
-def get_history_data():
+def get_history_data(sheet_obj):
     """Fetches the Master History data from Google Sheets."""
+    if sheet_obj is None: return pd.DataFrame()
     try:
-        # ttl=0 ensures we don't cache old data, we always get fresh data
-        return conn.read(worksheet="Sheet1", ttl=0)
+        data = sheet_obj.get_all_records()
+        return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"Could not connect to Google Sheet. Check Secrets. Error: {e}")
         return pd.DataFrame()
 
 def get_next_invoice_number_gsheet(date_obj, df_hist):
-    """
-    Reads the Google Sheet dataframe to find the next number for today.
-    """
+    """Determines next invoice number from Google Sheet history."""
     date_str = date_obj.strftime('%Y%m%d')
     next_seq = 1
     
     if not df_hist.empty and 'Invoice Number' in df_hist.columns:
-        # Filter for invoices created on the selected date
-        todays_inv = df_hist[df_hist['Invoice Number'].astype(str).str.startswith(date_str)]
+        df_hist['Invoice Number'] = df_hist['Invoice Number'].astype(str)
+        todays_inv = df_hist[df_hist['Invoice Number'].str.startswith(date_str)]
         
         if not todays_inv.empty:
             last_inv = todays_inv['Invoice Number'].iloc[-1]
             try:
-                last_seq = int(last_inv.split('-')[-1])
-                next_seq = last_seq + 1
+                parts = last_inv.split('-')
+                if len(parts) > 1:
+                    last_seq = int(parts[-1])
+                    next_seq = last_seq + 1
             except: pass
             
     return f"{date_str}-{next_seq:03d}"
 
 def check_invoice_exists(df_hist, customer_name, date_str):
-    """Checks if an invoice already exists for this customer on this date."""
+    """Checks if invoice exists for Customer + Date."""
     if df_hist.empty or 'Customer Name' not in df_hist.columns or 'Date' not in df_hist.columns:
         return False
-    
-    # Normalize checks
     mask = (
         (df_hist['Customer Name'].astype(str).str.lower() == str(customer_name).lower()) &
         (df_hist['Date'] == date_str)
     )
     return not df_hist[mask].empty
 
-def save_invoice_to_gsheet(data_dict, df_old):
-    """Appends a new invoice record to the Google Sheet."""
+def save_invoice_to_gsheet(data_dict, sheet_obj):
+    """Appends data to Google Sheet."""
+    if sheet_obj is None: return False
     try:
-        df_new = pd.DataFrame([data_dict])
-        df_combined = pd.concat([df_old, df_new], ignore_index=True)
-        conn.update(worksheet="Sheet1", data=df_combined)
-        st.cache_data.clear() # Clear cache to ensure next read is fresh
+        row_values = list(data_dict.values())
+        sheet_obj.append_row(row_values)
         return True
     except Exception as e:
         st.error(f"Error saving to Google Sheet: {e}")
@@ -156,9 +183,11 @@ PLAN_DISPLAY_NAMES = {
 }
 
 COLUMN_ALIASES = {
+    'Serial No.': ['Serial No.', 'serial no', 'sr no', 'sr. no.', 'id'],
     'Name': ['Name', 'name', 'patient name', 'client name'],
     'Mobile': ['Mobile', 'mobile', 'phone', 'contact'],
-    'Address': ['Address', 'address', 'location', 'city'],
+    'Location': ['Location', 'location', 'city'], 
+    'Address': ['Address', 'address', 'residence'],
     'Gender': ['Gender', 'gender', 'sex'],
     'Age': ['Age', 'age'],
     'Service Required': ['Service Required', 'service required', 'plan'],
@@ -206,7 +235,7 @@ def normalize_columns(df, aliases):
                     break 
     return df
 
-# --- HTML CONSTRUCTORS ---
+# --- HTML CONSTRUCTORS (UNCHANGED) ---
 def construct_description_html(row):
     shift_raw = str(row.get('Shift', '')).strip()
     recurring = str(row.get('Recurring', '')).strip().lower()
@@ -248,7 +277,7 @@ def construct_amount_html(row):
     
     def safe_float(val):
         try:
-            if pd.isna(val) or val == '': return 0.0
+            if pd.isna(val) or str(val).strip() == '': return 0.0
             return float(val)
         except: return 0.0
 
@@ -324,9 +353,16 @@ logo_b64 = get_clean_image_base64(LOGO_FILE)
 ig_b64 = get_clean_image_base64("icon-ig.png")
 fb_b64 = get_clean_image_base64("icon-fb.png")
 
-# --- UI FOR FILE UPLOAD ---
+# --- UI FOR FILE UPLOAD & GOOGLE CONNECT ---
 st.sidebar.header("📂 Data Source")
-st.sidebar.info("Connected to Google Sheets History ✅")
+
+# Connect to GSheet
+sheet_obj = get_google_sheet_client()
+if sheet_obj:
+    st.sidebar.success("Connected to Google Sheets ✅")
+else:
+    st.sidebar.error("❌ Not Connected to Google Sheets")
+
 uploaded_file = st.sidebar.file_uploader("Upload 'Confirmed' Sheet (Excel/CSV):", type=['xlsx', 'csv'])
 
 if uploaded_file:
@@ -349,11 +385,24 @@ if uploaded_file:
         
         st.success("✅ Data Loaded")
         
+        # Create Label and Add BLANK option
         df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-        selected_label = st.selectbox("Select Customer:", df['Label'].unique())
+        unique_labels = [""] + list(df['Label'].unique()) # Add blank option
+        
+        selected_label = st.selectbox("Select Customer:", unique_labels)
+        
+        # Stop execution if nothing selected
+        if not selected_label:
+            st.info("👈 Please select a customer to proceed.")
+            st.stop()
+            
         row = df[df['Label'] == selected_label].iloc[0]
         
         # Prepare Data - SAFE EXTRACTION
+        c_serial_raw = row.get('Serial No.', '')
+        try: c_serial = str(int(float(c_serial_raw)))
+        except: c_serial = str(c_serial_raw)
+
         c_plan = row.get('Service Required', '')
         c_sub = row.get('Sub Service', '')
         c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
@@ -361,6 +410,7 @@ if uploaded_file:
         c_name = row.get('Name', '')
         c_gender = row.get('Gender', '')
         
+        # Safe Age extraction
         raw_age = row.get('Age', '')
         try: 
             if pd.isna(raw_age) or raw_age == '': c_age = ""
@@ -368,6 +418,7 @@ if uploaded_file:
         except: c_age = str(raw_age)
 
         c_addr = row.get('Address', '')
+        c_location = row.get('Location', c_addr) 
         c_mob = row.get('Mobile', '')
         
         inc_def, exc_def = get_base_lists(c_plan, c_sub)
@@ -377,33 +428,39 @@ if uploaded_file:
         st.divider()
         col1, col2 = st.columns(2)
         
-        # --- PRELOAD HISTORY DATA TO CHECK DUPLICATES ---
-        df_history = get_history_data()
-
+        # --- PRELOAD HISTORY DATA ---
+        df_history = get_history_data(sheet_obj)
+        
         with col1:
             st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
             inv_date = st.date_input("Date:", value=datetime.date.today())
             fmt_date = format_date_with_suffix(inv_date)
-
-            # --- CHECK FOR DUPLICATES ---
+            
+            # --- INTELLIGENT INVOICE NUMBERING & CHECKING ---
             is_duplicate = check_invoice_exists(df_history, c_name, fmt_date)
             
-            # --- AUTO-CALCULATE INVOICE NUMBER ---
             if is_duplicate:
-                st.warning(f"⚠️ An invoice for {c_name} on {fmt_date} already exists!")
+                st.warning(f"⚠️ An invoice for {c_name} on {fmt_date} already exists in Google Sheets!")
                 force_print = st.checkbox("Print Duplicate Copy (Do not save to History)", value=False)
-                # If duplicate, we grab the EXISTING invoice number if possible, or just keep next
-                # Here we default to the next logical number, but the user won't save it.
+                # Logic: If duplicate, we just auto-fill next number but wont save it, or logic could be to find existing
+                # For simplicity in this robust version, we get the next number available
                 default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
             else:
                 force_print = False
                 default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
 
-            inv_num_input = st.text_input("Invoice No (Editable):", value=default_inv_num)
+            inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num)
             
             st.caption(f"Ref Date: {c_ref_date}")
+            
         with col2:
-            generated_by = st.text_input("Invoice Generated By:", placeholder="Enter your name")
+            generated_by_input = st.text_input("Invoice Generated By:", placeholder="")
+            
+            if not generated_by_input:
+                generated_by = "Vesak Patient Care"
+            else:
+                generated_by = generated_by_input
+
             final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def)
             
         st.write("**Included Services:**")
@@ -420,23 +477,27 @@ if uploaded_file:
             if is_duplicate and not force_print:
                 st.error("❌ Invoice already exists! Enable 'Print Duplicate Copy' to print anyway.")
                 st.stop()
-
+            
             clean_plan = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
             inv_num = inv_num_input
             
-            try: final_amt = float(row.get('Final Rate', 0))
-            except: final_amt = 0.0
+            def safe_float(val):
+                try: return float(val) if not pd.isna(val) else 0.0
+                except: return 0.0
             
-            # --- SAVE TO GOOGLE SHEET (Only if NOT a forced duplicate print) ---
+            final_amt = safe_float(row.get('Final Rate', 0))
+            
+            # --- SAVE TO HISTORY (ONLY IF NOT DUPLICATE) ---
             if not force_print:
                 invoice_record = {
+                    "Serial No.": c_serial,
                     "Invoice Number": inv_num,
                     "Date": fmt_date,
                     "Generated At": datetime.datetime.now().strftime("%H:%M:%S"),
                     "Customer Name": c_name,
                     "Age": c_age,
                     "Gender": c_gender,
-                    "Location": c_addr, 
+                    "Location": c_location,
                     "Address": c_addr,
                     "Mobile": c_mob,
                     "Plan": clean_plan,
@@ -447,15 +508,14 @@ if uploaded_file:
                     "Amount": final_amt,
                     "Generated By": generated_by
                 }
-                success = save_invoice_to_gsheet(invoice_record, df_history)
+                success = save_invoice_to_gsheet(invoice_record, sheet_obj)
                 if success:
                     st.success(f"✅ Invoice {inv_num} saved to Google Sheets History!")
-                else:
-                    st.error("Failed to save to Google Sheet, but PDF is generating...")
+                    # Refresh
+                    df_history = get_history_data(sheet_obj)
             else:
-                st.warning("ℹ️ Generating Duplicate Copy - Record NOT added to History.")
+                st.info("ℹ️ Generating Duplicate Copy. Database not updated.")
             
-            # --- PDF GENERATION (UNCHANGED LAYOUT) ---
             inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
             exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
             
@@ -463,6 +523,7 @@ if uploaded_file:
             if final_notes:
                 notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
 
+            # HTML TEMPLATE (UNCHANGED)
             html_template = f"""
             <!DOCTYPE html>
             <html lang="en">
