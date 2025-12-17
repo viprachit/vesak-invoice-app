@@ -77,7 +77,6 @@ def download_and_save_icon(url, filename):
 # URLs
 IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
 FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
-# Logo URL (Medical Cross)
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2966/2966327.png" 
 
 download_and_save_icon(IG_URL, "icon-ig.png")
@@ -124,53 +123,58 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [FIXED] ROBUST DOWNLOADER V4 - BROWSER SESSION
+# [ROBUST DOWNLOADER V4 - SESSION + COOKIE HANDLING]
 def robust_file_downloader(url):
     """
-    Downloads file using a full browser session to bypass 403 errors.
+    Downloads file using a Session to handle 403 Forbidden errors by 
+    persisting cookies/auth tokens during redirects.
     """
     session = requests.Session()
-    # Mimic a standard browser
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Upgrade-Insecure-Requests': '1'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
     })
 
+    target_url = url
+
+    # 1. Handle Shortlinks (1drv.ms) - Follow redirect to get real URL
+    if "1drv.ms" in url:
+        try:
+            r = session.head(url, allow_redirects=True)
+            target_url = r.url
+        except:
+            pass
+
+    # 2. Force Download Parameter
+    # Remove existing query params that might conflict
+    if "?" in target_url:
+        base_url = target_url.split("?")[0]
+        # OneDrive specifically uses 'download=1'
+        final_url = f"{base_url}?download=1"
+    else:
+        final_url = f"{target_url}?download=1"
+    
     try:
-        # 1. Handle OneDrive Shortlinks (1drv.ms)
-        if "1drv.ms" in url:
-            # Let the session follow the redirect to the real URL
-            r = session.get(url, allow_redirects=True)
-            real_url = r.url
-        else:
-            real_url = url
-
-        # 2. Prepare Download URL
-        if "?" in real_url:
-            clean_url = real_url.split("?")[0]
-        else:
-            clean_url = real_url
-            
-        # Append download command
-        download_url = clean_url + "?download=1"
-
-        # 3. Fetch File
-        response = session.get(download_url, allow_redirects=True)
-
-        if response.status_code == 200:
-            return BytesIO(response.content)
+        # 3. Perform Download
+        response = session.get(final_url, verify=False, allow_redirects=True)
         
-        # 4. Fallback: Try original URL if modification failed
-        response = session.get(url, allow_redirects=True)
         if response.status_code == 200:
-            return BytesIO(response.content)
-
+            # Check if we accidentally got a login page (HTML) instead of a file (Excel/CSV)
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'text/html' in content_type:
+                # If HTML, the modified URL failed. Try original URL exactly as is.
+                response = session.get(url, verify=False, allow_redirects=True)
+                if response.status_code == 200:
+                    return BytesIO(response.content)
+            else:
+                return BytesIO(response.content)
+            
         raise Exception(f"Status Code: {response.status_code}")
-
+        
     except Exception as e:
-        raise Exception(f"Download failed: {e}. Please ensure the link is 'Anyone with the link'.")
+        raise Exception(f"Download failed: {e}. Check link permissions.")
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -210,6 +214,7 @@ def check_invoice_exists(df_hist, customer_name, date_str):
 def save_invoice_to_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
+        # Convert dict values to list for appending
         row_values = list(data_dict.values())
         sheet_obj.append_row(row_values)
         return True
@@ -218,7 +223,7 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         return False
 
 # ==========================================
-# 3. DATA LOGIC (UNCHANGED)
+# 3. DATA LOGIC
 # ==========================================
 SERVICES_MASTER = {
     "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
@@ -403,10 +408,12 @@ def convert_html_to_pdf(source_html):
 # ==========================================
 st.title("🏥 Vesak Care - Invoice Generator")
 
+# Absolute paths for PDF engine
 abs_logo_path = get_absolute_path(LOGO_FILE)
 abs_ig_path = get_absolute_path("icon-ig.png")
 abs_fb_path = get_absolute_path("icon-fb.png")
 
+# Base64 for Web Preview
 logo_b64 = get_clean_image_base64(LOGO_FILE)
 ig_b64 = get_clean_image_base64("icon-ig.png")
 fb_b64 = get_clean_image_base64("icon-fb.png")
@@ -448,6 +455,7 @@ elif data_source == "OneDrive Link":
 if raw_file_obj:
     df = None
     try:
+        # Try reading as Excel first
         if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
         xl = pd.ExcelFile(raw_file_obj)
         sheet_names = xl.sheet_names
@@ -457,7 +465,7 @@ if raw_file_obj:
         df = pd.read_excel(raw_file_obj, sheet_name=selected_sheet)
     except Exception as e_excel:
         st.error(f"❌ Excel Read Error: {e_excel}")
-        st.info("ℹ️ If this is a valid Excel file, it might be corrupt or encrypted. If it is a CSV, rename it.")
+        st.info("ℹ️ File seems corrupted or password protected.")
         st.stop()
 
     if df is not None:
@@ -479,7 +487,7 @@ if raw_file_obj:
                 
             row = df[df['Label'] == selected_label].iloc[0]
             
-            # Prepare Data - SAFE EXTRACTION
+            # Prepare Data
             c_serial_raw = row.get('Serial No.', '')
             try: c_serial = str(int(float(c_serial_raw)))
             except: c_serial = str(c_serial_raw)
@@ -562,10 +570,10 @@ if raw_file_obj:
                 final_amt = safe_float(row.get('Final Rate', 0))
                 
                 if not force_print:
+                    # STRICT TYPE CASTING TO FIX JSON ERROR
                     try: visits_val = int(safe_float(row.get('Visits', 0)))
                     except: visits_val = 0
 
-                    # [UPDATED] Added Notes / Remarks before Generated By
                     invoice_record = {
                         "Serial No.": str(c_serial), 
                         "Invoice Number": str(inv_num),
@@ -582,8 +590,8 @@ if raw_file_obj:
                         "Recurring Service": str(row.get('Recurring', '')),
                         "Period": str(row.get('Period', '')),
                         "Visits": int(visits_val), 
-                        "Amount": float(final_amt), 
-                        "Notes / Remarks": str(c_notes_raw),
+                        "Amount": float(final_amt),
+                        "Notes / Remarks": str(final_notes),  # [ADDED] NEW COLUMN HERE
                         "Generated By": str(generated_by)
                     }
                     success = save_invoice_to_gsheet(invoice_record, sheet_obj)
