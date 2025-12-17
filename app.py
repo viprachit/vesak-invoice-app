@@ -4,9 +4,11 @@ import base64
 import os
 import datetime
 import requests
+import math 
 from io import BytesIO
 from PIL import Image, ImageFile
 import streamlit.components.v1 as components
+from xhtml2pdf import pisa 
 
 # --- CRITICAL FIX FOR BROKEN IMAGES ---
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -20,15 +22,16 @@ CONFIG_FILE = "path_config.txt"
 URL_CONFIG_FILE = "url_config.txt"
 LOGO_FILE = "logo.png"
 
-# --- AUTO-DOWNLOAD ICONS (Reliable Method) ---
+# --- ⬇️ SET YOUR ONEDRIVE/LOCAL MASTER FILE PATH HERE ⬇️ ---
+DEFAULT_MASTER_DB_PATH = r"C:\Users\Viprachit\OneDrive\Vesak_invoice_history.xlsx"
+
+# --- AUTO-DOWNLOAD ICONS ---
 def download_and_save_icon(url, filename):
-    """Downloads an icon from the web and saves it as a clean, small PNG."""
     if not os.path.exists(filename):
         try:
             response = requests.get(url)
             if response.status_code == 200:
                 img = Image.open(BytesIO(response.content)).convert("RGBA")
-                # Resize to small icon size to keep PDF light
                 img = img.resize((32, 32)) 
                 img.save(filename, format="PNG")
                 return True
@@ -36,11 +39,9 @@ def download_and_save_icon(url, filename):
             return False
     return True
 
-# Public URLs for standard icons
-IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" # Instagram Color
-FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" # Facebook Color
+IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
+FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
 
-# Trigger download on startup
 download_and_save_icon(IG_URL, "icon-ig.png")
 download_and_save_icon(FB_URL, "icon-fb.png")
 
@@ -55,6 +56,10 @@ def load_config_path(file_name):
 def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
+
+def get_absolute_path(filename):
+    if os.path.exists(filename): return os.path.abspath(filename).replace('\\', '/')
+    return None
 
 def get_clean_image_base64(file_path):
     if not os.path.exists(file_path): return None
@@ -85,6 +90,89 @@ def format_date_with_suffix(d):
         return d.strftime(f"%b. {day}{suffix} %Y")
     except: return str(d)
 
+# --- DATABASE LOGIC ---
+
+def get_existing_invoice_by_serial(serial_no, history_path):
+    """
+    Checks if a Serial No already has an invoice in the Master DB.
+    Returns: (Invoice Number, True) if found.
+    Returns: (None, False) if not found.
+    """
+    if not os.path.exists(history_path) or not serial_no:
+        return None, False
+    
+    try:
+        df_hist = pd.read_excel(history_path)
+        df_hist.columns = df_hist.columns.str.strip()
+        
+        if 'Serial No.' in df_hist.columns:
+            # Convert both to string for comparison (handle 1 vs 1.0)
+            # Drop NaNs first
+            clean_s_col = pd.to_numeric(df_hist['Serial No.'], errors='coerce').dropna().astype(int).astype(str)
+            target = str(int(float(serial_no)))
+            
+            # Find in the cleaned series
+            if target in clean_s_col.values:
+                # Get the original row index
+                idx = clean_s_col[clean_s_col == target].index[0]
+                return df_hist.loc[idx, 'Invoice Number'], True
+    except:
+        pass
+    
+    return None, False
+
+def check_if_invoice_number_exists(inv_num, history_path):
+    """Checks if the invoice number string exists in the DB (Collision check)."""
+    if not os.path.exists(history_path): return False
+    try:
+        df_hist = pd.read_excel(history_path)
+        df_hist.columns = df_hist.columns.str.strip()
+        if 'Invoice Number' in df_hist.columns:
+            return str(inv_num) in df_hist['Invoice Number'].astype(str).values
+    except: return False
+    return False
+
+def get_next_invoice_number_from_excel(date_obj, history_path):
+    """Safely determines next invoice number from Excel history based on Date."""
+    date_str = date_obj.strftime('%Y%m%d')
+    next_seq = 1
+    
+    if os.path.exists(history_path):
+        try:
+            df_hist = pd.read_excel(history_path)
+            df_hist.columns = df_hist.columns.str.strip()
+            
+            if 'Invoice Number' in df_hist.columns:
+                # Force to string to handle potential mixed types
+                df_hist['Invoice Number'] = df_hist['Invoice Number'].astype(str)
+                todays_inv = df_hist[df_hist['Invoice Number'].str.startswith(date_str)]
+                
+                if not todays_inv.empty:
+                    last_inv = todays_inv['Invoice Number'].iloc[-1]
+                    try:
+                        # Split by hyphen and take last part
+                        parts = last_inv.split('-')
+                        if len(parts) > 1:
+                            last_seq = int(parts[-1])
+                            next_seq = last_seq + 1
+                    except: pass
+        except: pass
+            
+    return f"{date_str}-{next_seq:03d}"
+
+def save_invoice_to_history(data_dict, history_path):
+    """Appends data to Excel safely."""
+    df_new = pd.DataFrame([data_dict])
+    if os.path.exists(history_path):
+        try:
+            df_old = pd.read_excel(history_path)
+            df_combined = pd.concat([df_old, df_new], ignore_index=True)
+            df_combined.to_excel(history_path, index=False)
+        except Exception as e:
+            st.error(f"⚠️ Error saving to database: {e}. Please close the Excel file if it is open.")
+    else:
+        df_new.to_excel(history_path, index=False)
+
 # ==========================================
 # 3. DATA LOGIC
 # ==========================================
@@ -110,16 +198,19 @@ PLAN_DISPLAY_NAMES = {
     "A-la-carte Services": "Other Services"
 }
 
+# [UPDATED] Included 'Serial No.'
 COLUMN_ALIASES = {
+    'Serial No.': ['Serial No.', 'serial no', 'sr no', 'sr. no.', 'id'],
     'Name': ['Name', 'name', 'patient name', 'client name'],
     'Mobile': ['Mobile', 'mobile', 'phone', 'contact'],
-    'Address': ['Address', 'address', 'location', 'city'],
+    'Location': ['Location', 'location', 'city'], 
+    'Address': ['Address', 'address', 'residence'],
     'Gender': ['Gender', 'gender', 'sex'],
     'Age': ['Age', 'age'],
     'Service Required': ['Service Required', 'service required', 'plan'],
     'Sub Service': ['Sub Service', 'sub service', 'sub plan'],
     'Final Rate': ['Final Rate', 'final rate', 'amount', 'total amount'],
-    'Unit Rate': ['Rate Agreed (₹)', 'rate agreed', 'unit rate', 'per day rate', 'rate agreed'],
+    'Unit Rate': ['Rate Agreed (₹)', 'rate agreed', 'unit rate', 'per day rate'],
     'Call Date': ['Call Date', 'call date'],
     'Notes': ['Notes / Remarks', 'notes'],
     'Shift': ['Shift', 'shift'],
@@ -161,7 +252,7 @@ def normalize_columns(df, aliases):
                     break 
     return df
 
-# --- COLUMN A: DESCRIPTION LOGIC ---
+# --- HTML CONSTRUCTORS ---
 def construct_description_html(row):
     shift_raw = str(row.get('Shift', '')).strip()
     recurring = str(row.get('Recurring', '')).strip().lower()
@@ -196,31 +287,39 @@ def construct_description_html(row):
     </div>
     """
 
-# --- COLUMN B: AMOUNT & MATH ---
 def construct_amount_html(row):
     shift_raw = str(row.get('Shift', '')).strip()
     recurring = str(row.get('Recurring', '')).strip().lower()
     period_raw = str(row.get('Period', '')).strip()
-    visits_raw = row.get('Visits', 0)
     
-    final_rate = row.get('Final Rate', 0)
-    if isinstance(final_rate, pd.Series): final_rate = final_rate.iloc[0]
-    unit_rate = row.get('Unit Rate', 0)
-    if isinstance(unit_rate, pd.Series): unit_rate = unit_rate.iloc[0]
+    def safe_float(val):
+        try:
+            if pd.isna(val) or str(val).strip() == '': return 0.0
+            return float(val)
+        except: return 0.0
+
+    visits = int(safe_float(row.get('Visits', 0)))
+    final_rate = safe_float(row.get('Final Rate', 0))
+    if isinstance(row.get('Final Rate'), pd.Series): 
+        final_rate = safe_float(row.get('Final Rate').iloc[0])
+        
+    unit_rate = safe_float(row.get('Unit Rate', 0))
+    if isinstance(row.get('Unit Rate'), pd.Series):
+        unit_rate = safe_float(row.get('Unit Rate').iloc[0])
 
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_str = shift_map.get(shift_raw, shift_raw)
     time_suffix = " (Time)" if "12" in shift_str else ""
     shift_display = f"{shift_str}{time_suffix}"
 
-    try: visits = int(float(visits_raw)) if visits_raw and str(visits_raw).lower() != 'nan' else 0
-    except: visits = 0
-
     if unit_rate == 0 and visits > 0 and final_rate > 0:
         unit_rate = int(final_rate / visits)
     if visits == 0 and final_rate > 0:
         visits = 1
-        if unit_rate == 0: unit_rate = final_rate
+        if unit_rate == 0: unit_rate = int(final_rate)
+
+    unit_rate_disp = "{:,.0f}".format(unit_rate)
+    final_rate_disp = "{:,.0f}".format(final_rate)
 
     p_lower = period_raw.lower()
     if 'dai' in p_lower: p_single, p_multi = "Day", "Days"
@@ -238,53 +337,72 @@ def construct_amount_html(row):
     return f"""
     <div style="text-align: right; font-size: 12px; color: #666;">
         <div style="display: flex; justify-content: flex-end; align-items: center;">
-            <span>{shift_display} / {p_single} = <b style="color: #333;">₹ {unit_rate:,}</b></span>
+            <span>{shift_display} / {p_single} = <b style="color: #333;">₹ {unit_rate_disp}</b></span>
         </div>
         <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
         <div>{duration_text}</div>
         <div style="border-bottom: 1px solid #ccc; width: 100%; margin: 4px 0;"></div>
         <div style="display: flex; justify-content: flex-end; gap: 5px;">
             <span style="font-size: 10px; font-weight: bold; color: #002147; text-transform: uppercase;">Total -</span>
-            <span style="font-size: 14px; font-weight: bold; color: #000;">₹ {final_rate:,}</span>
+            <span style="font-size: 14px; font-weight: bold; color: #000;">₹ {final_rate_disp}</span>
         </div>
     </div>
     """
-
-def make_html_list(items):
-    if not items: return ""
-    return "".join([f'<div style="margin-bottom:3px; font-size:10px;">• {x}</div>' for x in items])
 
 def chunk_list(data, num_chunks):
     chunks = [[] for _ in range(num_chunks)]
     for i, item in enumerate(data): chunks[i % num_chunks].append(item)
     return chunks
 
+def make_html_list(items):
+    if not items: return ""
+    return "".join([f'<div style="margin-bottom:3px; font-size:10px;">• {x}</div>' for x in items])
+
+def convert_html_to_pdf(source_html):
+    result = BytesIO()
+    pisa_status = pisa.CreatePDF(source_html, dest=result)
+    if pisa_status.err: return None
+    return result.getvalue()
+
 # ==========================================
 # 4. UI & LOGIC
 # ==========================================
 st.title("🏥 Vesak Care - Invoice Generator")
 
+abs_logo_path = get_absolute_path(LOGO_FILE)
+abs_ig_path = get_absolute_path("icon-ig.png")
+abs_fb_path = get_absolute_path("icon-fb.png")
+
 logo_b64 = get_clean_image_base64(LOGO_FILE)
 ig_b64 = get_clean_image_base64("icon-ig.png")
 fb_b64 = get_clean_image_base64("icon-fb.png")
 
-if not logo_b64: st.sidebar.warning("⚠️ Logo not found.")
+if not abs_logo_path: st.sidebar.warning("⚠️ Logo not found. (Checks local path)")
 
 with st.sidebar:
     st.header("📂 Data Source")
-    data_source = st.radio("Load Method:", ["Upload File", "OneDrive URL", "Local Path"])
+    data_source = st.radio("Load Method:", ["Upload File", "Master Database (Local/OneDrive)", "OneDrive Link"])
 
 raw_file_obj = None
+history_db_path = DEFAULT_MASTER_DB_PATH
+
 if data_source == "Upload File":
     uploaded_file = st.file_uploader("Upload Excel/CSV", type=['xlsx', 'csv'])
     if uploaded_file: raw_file_obj = uploaded_file
-elif data_source == "OneDrive URL":
+
+elif data_source == "Master Database (Local/OneDrive)":
+    history_db_path = st.text_input("Path to Master History File:", value=DEFAULT_MASTER_DB_PATH)
+    uploaded_file = st.file_uploader("Upload Daily/Confirmed Sheet:", type=['xlsx', 'csv'])
+    if uploaded_file: raw_file_obj = uploaded_file
+
+elif data_source == "OneDrive Link":
     current_url = load_config_path(URL_CONFIG_FILE)
     url_input = st.text_input("Link:", value=current_url)
     if st.button("Load"): save_config_path(url_input, URL_CONFIG_FILE); st.rerun()
     if current_url:
         try: raw_file_obj = robust_file_downloader(current_url); st.success("Connected")
         except: st.error("Link Error")
+
 elif data_source == "Local Path":
     current_path = load_config_path(CONFIG_FILE)
     path_input = st.text_input("Path:", value=current_path)
@@ -312,19 +430,41 @@ if raw_file_obj:
         
         st.success("✅ Data Loaded")
         
+        # Create Label and Add BLANK option
         df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-        selected_label = st.selectbox("Select Customer:", df['Label'].unique())
+        unique_labels = [""] + list(df['Label'].unique()) # Add blank option
+        
+        selected_label = st.selectbox("Select Customer:", unique_labels)
+        
+        # Stop execution if nothing selected
+        if not selected_label:
+            st.info("👈 Please select a customer to proceed.")
+            st.stop()
+            
         row = df[df['Label'] == selected_label].iloc[0]
         
-        # Prepare Data
+        # Prepare Data - SAFE EXTRACTION
+        # Clean Serial No to be a plain integer string if possible
+        c_serial_raw = row.get('Serial No.', '')
+        try: c_serial = str(int(float(c_serial_raw)))
+        except: c_serial = str(c_serial_raw)
+
         c_plan = row.get('Service Required', '')
         c_sub = row.get('Sub Service', '')
         c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
         c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
         c_name = row.get('Name', '')
         c_gender = row.get('Gender', '')
-        c_age = str(int(row.get('Age', 0))) if pd.notna(row.get('Age')) and row.get('Age') != '' else ""
+        
+        # Safe Age extraction
+        raw_age = row.get('Age', '')
+        try: 
+            if pd.isna(raw_age) or raw_age == '': c_age = ""
+            else: c_age = str(int(float(raw_age)))
+        except: c_age = str(raw_age)
+
         c_addr = row.get('Address', '')
+        c_location = row.get('Location', c_addr) 
         c_mob = row.get('Mobile', '')
         
         inc_def, exc_def = get_base_lists(c_plan, c_sub)
@@ -336,8 +476,34 @@ if raw_file_obj:
         with col1:
             st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
             inv_date = st.date_input("Date:", value=datetime.date.today())
+            
+            # --- INTELLIGENT INVOICE NUMBERING ---
+            existing_inv_num, found_in_history = get_existing_invoice_by_serial(c_serial, history_db_path)
+            
+            if found_in_history:
+                st.warning(f"⚠️ Serial No. {c_serial} exists! Duplicate Copy Mode.")
+                inv_num_input = st.text_input("Invoice No:", value=existing_inv_num, disabled=True)
+                is_duplicate_generation = True
+            else:
+                default_inv_num = get_next_invoice_number_from_excel(inv_date, history_db_path)
+                inv_num_input = st.text_input("Invoice No (New):", value=default_inv_num)
+                is_duplicate_generation = False
+                
+                # Check for manual collision if user edits
+                if check_if_invoice_number_exists(inv_num_input, history_db_path):
+                     st.error(f"⛔ Warning: Invoice Number '{inv_num_input}' already exists in the database for a different client!")
+            
             st.caption(f"Ref Date: {c_ref_date}")
+            
         with col2:
+            generated_by_input = st.text_input("Invoice Generated By:", placeholder="")
+            
+            # DEFAULT NAME LOGIC: If blank, save "Vesak Patient Care", else save input
+            if not generated_by_input:
+                generated_by = "Vesak Patient Care"
+            else:
+                generated_by = generated_by_input
+
             final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def)
             
         st.write("**Included Services:**")
@@ -349,7 +515,41 @@ if raw_file_obj:
             
             clean_plan = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
             fmt_date = format_date_with_suffix(inv_date)
-            inv_num = inv_date.strftime('%Y%m%d') + "-001"
+            inv_num = inv_num_input
+            
+            # Safe amount extraction
+            def safe_float(val):
+                try: return float(val) if not pd.isna(val) else 0.0
+                except: return 0.0
+            
+            # AMOUNT = Final Rate (as requested)
+            final_amt = safe_float(row.get('Final Rate', 0))
+            
+            # --- SAVE TO HISTORY (ONLY IF NOT DUPLICATE) ---
+            if not is_duplicate_generation:
+                invoice_record = {
+                    "Serial No.": c_serial, # Important for tracking
+                    "Invoice Number": inv_num,
+                    "Date": fmt_date,
+                    "Generated At": datetime.datetime.now().strftime("%H:%M:%S"),
+                    "Customer Name": c_name,
+                    "Age": c_age,
+                    "Gender": c_gender,
+                    "Location": c_location,
+                    "Address": c_addr,
+                    "Mobile": c_mob,
+                    "Plan": clean_plan,
+                    "Shift": row.get('Shift', ''),
+                    "Recurring Service": row.get('Recurring', ''),
+                    "Period": row.get('Period', ''),
+                    "Visits": row.get('Visits', ''),
+                    "Amount": final_amt,
+                    "Generated By": generated_by
+                }
+                save_invoice_to_history(invoice_record, history_db_path)
+                st.success(f"✅ Invoice {inv_num} saved to History!")
+            else:
+                st.info("ℹ️ Generating Duplicate Copy. Database not updated.")
             
             inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
             exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
@@ -358,13 +558,12 @@ if raw_file_obj:
             if final_notes:
                 notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
 
-            # --- HTML TEMPLATE (YOUR DESIGN + DATA) ---
+            # HTML TEMPLATE
             html_template = f"""
             <!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Invoice</title>
                 <script src="https://cdn.tailwindcss.com"></script>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -383,7 +582,7 @@ if raw_file_obj:
                     @import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap');
                     body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }}
                     .invoice-page {{
-                        background: white; width: 210mm; min-height: 296mm;
+                        background: white; width: 210mm; min-height: 297mm;
                         margin: 20px auto; padding: 40px; position: relative;
                         box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column;
                     }}
@@ -397,20 +596,10 @@ if raw_file_obj:
                         font-weight: 700; color: #002147; letter-spacing: 0.3em;
                     }}
                     @media print {{
-     				@page {{ margin: 0; size: auto; }} /* Kills browser default margins */
-    				body {{ margin: 0; padding: 0; -webkit-print-color-adjust: exact; }}
-    				.invoice-page {{
-    				margin: 0;
-        			width: 210mm;
-        			height: 296mm; /* 1mm buffer to prevent page 2 */
-        			padding: 40px;
-				box-shadow: none;
-        			overflow: hidden; /* Cuts off any ghost pixels */
-        			page-break-after: avoid; /* Forbids new page */
-				page-break-inside: avoid;
-    			}}
+                        body {{ background: white; -webkit-print-color-adjust: exact; }}
+                        .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }}
                         .no-print {{ display: none !important; }}
-                        .watermark-container {{ opacity: 0.012 !important; }}
+                        .watermark-container {{ opacity: 0.015 !important; }}
                     }}
                 </style>
             </head>
@@ -453,6 +642,7 @@ if raw_file_obj:
                     </header>
 
                     <main class="flex-grow relative z-10">
+                        
                         <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy">
                             <div class="w-1/2 p-4 border-r border-gray-200">
                                 <div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div>
@@ -538,8 +728,8 @@ if raw_file_obj:
                             margin: 0,
                             filename: 'Invoice_{c_name}.pdf',
                             image: {{ type: 'jpeg', quality: 0.98 }},
-                            html2canvas: {{ scale: 2, useCORS: true }},
-                            jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+                            html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }},
+                            jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                         }};
                         html2pdf().set(opt).from(element).save();
                     }}
@@ -549,6 +739,16 @@ if raw_file_obj:
             """
             
             components.html(html_template, height=1000, scrolling=True)
+            
+            # --- PDF Generation (Offline Engine Fallback) ---
+            if abs_logo_path and abs_ig_path:
+                pdf_html = html_template.replace(f'src="data:image/png;base64,{logo_b64}"', f'src="{abs_logo_path}"')
+                pdf_html = pdf_html.replace(f'src="data:image/png;base64,{ig_b64}"', f'src="{abs_ig_path}"')
+                pdf_html = pdf_html.replace(f'src="data:image/png;base64,{fb_b64}"', f'src="{abs_fb_path}"')
+                
+                pdf_bytes = convert_html_to_pdf(pdf_html)
+                if pdf_bytes:
+                    st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
 
     except Exception as e:
         st.error(f"Error: {e}")
