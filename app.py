@@ -117,13 +117,32 @@ def save_config_path(path, file_name):
 def robust_file_downloader(url):
     """Downloads file from OneDrive or direct link."""
     headers = {'User-Agent': 'Mozilla/5.0'}
-    # Fix for OneDrive share links
-    download_url = url.split('?')[0] + "?download=1" if "1drv.ms" in url else url
+    
+    # [FIX] Do not strip parameters. Append download=1 correctly.
+    # If it's a Microsoft link, we want to force download.
+    if any(x in url for x in ["1drv.ms", "sharepoint.com", "onedrive.live.com"]):
+        if "?" in url:
+            # Check if download=1 is already there to avoid duplication
+            if "download=1" not in url:
+                download_url = url + "&download=1"
+            else:
+                download_url = url
+        else:
+            download_url = url + "?download=1"
+    else:
+        download_url = url
+
     try:
         response = requests.get(download_url, headers=headers, verify=False)
         if response.status_code == 200: 
             return BytesIO(response.content)
         else:
+            # Fallback: Try the original URL if the manipulation caused a 403
+            # Sometimes the user pastes a direct download link that gets broken by appending
+            fallback_response = requests.get(url, headers=headers, verify=False)
+            if fallback_response.status_code == 200:
+                return BytesIO(fallback_response.content)
+            
             raise Exception(f"Status Code: {response.status_code}")
     except Exception as e:
         raise Exception(f"Download failed: {e}")
