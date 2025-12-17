@@ -5,4 +5,3 @@ requests
 Pillow
 xhtml2pdf
 streamlit-gsheets
-st-files-connection
