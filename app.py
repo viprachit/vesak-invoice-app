@@ -21,8 +21,9 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="🏥")
 
 LOGO_FILE = "logo.png"
+URL_CONFIG_FILE = "url_config.txt"
 
-# --- CONNECT TO GOOGLE SHEETS (NEW CODE) ---
+# --- CONNECT TO GOOGLE SHEETS ---
 def get_google_sheet_client():
     """Connects to Google Sheets using the standard gspread library."""
     scopes = [
@@ -30,7 +31,6 @@ def get_google_sheet_client():
         "https://www.googleapis.com/auth/drive",
     ]
     try:
-        # Read from the [connections.gsheets] section in your Secrets
         s_info = st.secrets["connections"]["gsheets"]
         
         creds_dict = {
@@ -48,9 +48,8 @@ def get_google_sheet_client():
         
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(credentials)
-        # Open the sheet by the URL found in secrets
         sheet = client.open_by_url(s_info["spreadsheet"])
-        return sheet.sheet1 # Opens the first sheet
+        return sheet.sheet1 
     except Exception as e:
         st.error(f"Connection Error: {e}")
         return None
@@ -105,7 +104,31 @@ def format_date_with_suffix(d):
         return d.strftime(f"%b. {day}{suffix} %Y")
     except: return str(d)
 
-# --- GOOGLE SHEETS DATABASE FUNCTIONS (NEW CODE) ---
+# --- NEW HELPERS FOR ONEDRIVE ---
+def load_config_path(file_name):
+    if os.path.exists(file_name):
+        with open(file_name, "r") as f: return f.read().strip()
+    return ""
+
+def save_config_path(path, file_name):
+    with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
+    return path
+
+def robust_file_downloader(url):
+    """Downloads file from OneDrive or direct link."""
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    # Fix for OneDrive share links
+    download_url = url.split('?')[0] + "?download=1" if "1drv.ms" in url else url
+    try:
+        response = requests.get(download_url, headers=headers, verify=False)
+        if response.status_code == 200: 
+            return BytesIO(response.content)
+        else:
+            raise Exception(f"Status Code: {response.status_code}")
+    except Exception as e:
+        raise Exception(f"Download failed: {e}")
+
+# --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
 def get_history_data(sheet_obj):
     """Fetches the Master History data from Google Sheets."""
@@ -354,30 +377,56 @@ ig_b64 = get_clean_image_base64("icon-ig.png")
 fb_b64 = get_clean_image_base64("icon-fb.png")
 
 # --- UI FOR FILE UPLOAD & GOOGLE CONNECT ---
-st.sidebar.header("📂 Data Source")
-
 # Connect to GSheet
 sheet_obj = get_google_sheet_client()
-if sheet_obj:
-    st.sidebar.success("Connected to Google Sheets ✅")
-else:
-    st.sidebar.error("❌ Not Connected to Google Sheets")
 
-uploaded_file = st.sidebar.file_uploader("Upload 'Confirmed' Sheet (Excel/CSV):", type=['xlsx', 'csv'])
+with st.sidebar:
+    st.header("📂 Data Source")
+    if sheet_obj:
+        st.success("Connected to Google Sheets ✅")
+    else:
+        st.error("❌ Not Connected to Google Sheets")
+    
+    # [RESTORED] Option to choose method
+    data_source = st.radio("Load Confirmed Sheet via:", ["Upload File", "OneDrive Link"])
 
-if uploaded_file:
+raw_file_obj = None
+
+# --- LOGIC TO GET THE FILE ---
+if data_source == "Upload File":
+    uploaded_file = st.sidebar.file_uploader("Upload Excel/CSV", type=['xlsx', 'csv'])
+    if uploaded_file: raw_file_obj = uploaded_file
+
+elif data_source == "OneDrive Link":
+    # Load previously saved URL if available
+    current_url = load_config_path(URL_CONFIG_FILE)
+    url_input = st.sidebar.text_input("Paste OneDrive/Sharepoint Link:", value=current_url)
+    
+    if st.sidebar.button("Load from Link"):
+        save_config_path(url_input, URL_CONFIG_FILE) # Save for next time
+        st.rerun()
+        
+    if current_url:
+        try: 
+            raw_file_obj = robust_file_downloader(current_url)
+            st.sidebar.success("✅ File Downloaded from Link")
+        except Exception as e: 
+            st.sidebar.error(f"Link Error: {e}")
+
+# --- PROCESS FILE IF LOADED ---
+if raw_file_obj:
     try:
         try:
-            xl = pd.ExcelFile(uploaded_file)
+            xl = pd.ExcelFile(raw_file_obj)
             sheet_names = xl.sheet_names
-            if hasattr(uploaded_file, 'seek'): uploaded_file.seek(0)
+            if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
             default_ix = 0
             if 'Confirmed' in sheet_names: default_ix = sheet_names.index('Confirmed')
             selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
-            df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+            df = pd.read_excel(raw_file_obj, sheet_name=selected_sheet)
         except:
-            if hasattr(uploaded_file, 'seek'): uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file)
+            if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
+            df = pd.read_csv(raw_file_obj)
 
         df = normalize_columns(df, COLUMN_ALIASES)
         missing = [k for k in ['Name', 'Mobile', 'Final Rate', 'Service Required', 'Unit Rate'] if k not in df.columns]
