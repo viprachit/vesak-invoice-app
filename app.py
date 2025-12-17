@@ -32,6 +32,7 @@ def get_google_sheet_client():
         "https://www.googleapis.com/auth/drive",
     ]
     try:
+        # Check if secrets exist
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             s_info = st.secrets["connections"]["gsheets"]
             
@@ -64,6 +65,7 @@ def download_and_save_icon(url, filename):
             response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 img = Image.open(BytesIO(response.content)).convert("RGBA")
+                # Resize specifically for the file type
                 if "logo" in filename:
                     img.thumbnail((200, 200)) 
                 else:
@@ -77,6 +79,7 @@ def download_and_save_icon(url, filename):
 # URLs
 IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
 FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
+# Fallback Logo URL (Medical Cross)
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2966/2966327.png" 
 
 download_and_save_icon(IG_URL, "icon-ig.png")
@@ -123,58 +126,51 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [ROBUST DOWNLOADER V4 - SESSION + COOKIE HANDLING]
+# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
 def robust_file_downloader(url):
     """
-    Downloads file using a Session to handle 403 Forbidden errors by 
-    persisting cookies/auth tokens during redirects.
+    Downloads file using a session to persist cookies through redirects.
+    This fixes 403 errors on public OneDrive links.
     """
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.google.com/'
     })
 
-    target_url = url
-
-    # 1. Handle Shortlinks (1drv.ms) - Follow redirect to get real URL
-    if "1drv.ms" in url:
-        try:
-            r = session.head(url, allow_redirects=True)
-            target_url = r.url
-        except:
-            pass
-
-    # 2. Force Download Parameter
-    # Remove existing query params that might conflict
-    if "?" in target_url:
-        base_url = target_url.split("?")[0]
-        # OneDrive specifically uses 'download=1'
-        final_url = f"{base_url}?download=1"
+    download_url = url
+    
+    # 1. Clean the URL (Remove existing parameters)
+    if "?" in url:
+        base_url = url.split("?")[0]
     else:
-        final_url = f"{target_url}?download=1"
+        base_url = url
+
+    # 2. Append download command
+    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
+        download_url = base_url + "?download=1"
     
     try:
-        # 3. Perform Download
-        response = session.get(final_url, verify=False, allow_redirects=True)
+        # Attempt download
+        response = session.get(download_url, verify=False, allow_redirects=True)
         
+        # Check if successful
         if response.status_code == 200:
-            # Check if we accidentally got a login page (HTML) instead of a file (Excel/CSV)
+            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
-            if 'text/html' in content_type:
-                # If HTML, the modified URL failed. Try original URL exactly as is.
+            if 'text/html' in content_type and len(response.content) < 5000:
+                # If we got a small HTML page, it might be a login redirect.
+                # Try the original URL without modification as a last resort
                 response = session.get(url, verify=False, allow_redirects=True)
-                if response.status_code == 200:
-                    return BytesIO(response.content)
-            else:
-                return BytesIO(response.content)
+            
+            return BytesIO(response.content)
             
         raise Exception(f"Status Code: {response.status_code}")
         
     except Exception as e:
-        raise Exception(f"Download failed: {e}. Check link permissions.")
+        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
