@@ -32,7 +32,6 @@ def get_google_sheet_client():
         "https://www.googleapis.com/auth/drive",
     ]
     try:
-        # Check if secrets exist
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             s_info = st.secrets["connections"]["gsheets"]
             
@@ -65,7 +64,6 @@ def download_and_save_icon(url, filename):
             response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 img = Image.open(BytesIO(response.content)).convert("RGBA")
-                # Resize specifically for the file type
                 if "logo" in filename:
                     img.thumbnail((200, 200)) 
                 else:
@@ -79,7 +77,6 @@ def download_and_save_icon(url, filename):
 # URLs
 IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
 FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
-# Fallback Logo URL (Medical Cross)
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2966/2966327.png" 
 
 download_and_save_icon(IG_URL, "icon-ig.png")
@@ -126,51 +123,42 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
+# [ROBUST DOWNLOADER V4 - SESSION + COOKIE HANDLING]
 def robust_file_downloader(url):
-    """
-    Downloads file using a session to persist cookies through redirects.
-    This fixes 403 errors on public OneDrive links.
-    """
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': 'https://www.google.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
     })
 
-    download_url = url
-    
-    # 1. Clean the URL (Remove existing parameters)
-    if "?" in url:
-        base_url = url.split("?")[0]
-    else:
-        base_url = url
+    target_url = url
+    if "1drv.ms" in url:
+        try:
+            r = session.head(url, allow_redirects=True)
+            target_url = r.url
+        except: pass
 
-    # 2. Append download command
-    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
-        download_url = base_url + "?download=1"
+    if "?" in target_url:
+        base_url = target_url.split("?")[0]
+        final_url = f"{base_url}?download=1"
+    else:
+        final_url = f"{target_url}?download=1"
     
     try:
-        # Attempt download
-        response = session.get(download_url, verify=False, allow_redirects=True)
-        
-        # Check if successful
+        response = session.get(final_url, verify=False, allow_redirects=True)
         if response.status_code == 200:
-            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
-            if 'text/html' in content_type and len(response.content) < 5000:
-                # If we got a small HTML page, it might be a login redirect.
-                # Try the original URL without modification as a last resort
+            if 'text/html' in content_type:
                 response = session.get(url, verify=False, allow_redirects=True)
-            
-            return BytesIO(response.content)
-            
+                if response.status_code == 200:
+                    return BytesIO(response.content)
+            else:
+                return BytesIO(response.content)
         raise Exception(f"Status Code: {response.status_code}")
-        
     except Exception as e:
-        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
+        raise Exception(f"Download failed: {e}. Check link permissions.")
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -198,19 +186,26 @@ def get_next_invoice_number_gsheet(date_obj, df_hist):
             except: pass
     return f"{date_str}-{next_seq:03d}"
 
-def check_invoice_exists(df_hist, customer_name, date_str):
-    if df_hist.empty or 'Customer Name' not in df_hist.columns or 'Date' not in df_hist.columns:
-        return False
-    mask = (
-        (df_hist['Customer Name'].astype(str).str.lower() == str(customer_name).lower()) &
-        (df_hist['Date'] == date_str)
-    )
-    return not df_hist[mask].empty
+# [NEW] Check based on SERIAL NUMBER instead of Name/Date
+def get_record_by_serial(df_hist, serial_no):
+    """Checks if a Serial No exists in history and returns the record."""
+    if df_hist.empty or 'Serial No.' not in df_hist.columns:
+        return None
+    
+    # Convert to string to ensure matching (e.g. "1" matches "1.0" or 1)
+    # We clean both sides to be safe
+    df_hist['Serial_Clean'] = df_hist['Serial No.'].astype(str).str.split('.').str[0].str.strip()
+    target_serial = str(serial_no).split('.')[0].strip()
+    
+    match = df_hist[df_hist['Serial_Clean'] == target_serial]
+    
+    if not match.empty:
+        return match.iloc[0] # Return the first matching row
+    return None
 
 def save_invoice_to_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
-        # Convert dict values to list for appending
         row_values = list(data_dict.values())
         sheet_obj.append_row(row_values)
         return True
@@ -512,6 +507,7 @@ if raw_file_obj:
             st.divider()
             col1, col2 = st.columns(2)
             
+            # GET HISTORY FROM GOOGLE SHEET
             df_history = get_history_data(sheet_obj)
             
             with col1:
@@ -519,13 +515,17 @@ if raw_file_obj:
                 inv_date = st.date_input("Date:", value=datetime.date.today())
                 fmt_date = format_date_with_suffix(inv_date)
                 
-                is_duplicate = check_invoice_exists(df_history, c_name, fmt_date)
+                # --- CHECK IF INVOICE EXISTS BASED ON SERIAL NUMBER ---
+                existing_record = get_record_by_serial(df_history, c_serial)
                 
-                if is_duplicate:
-                    st.warning(f"⚠️ An invoice for {c_name} on {fmt_date} already exists in Google Sheets!")
+                if existing_record is not None:
+                    is_duplicate = True
+                    existing_inv_num = existing_record['Invoice Number']
+                    st.warning(f"⚠️ Invoice already exists for Serial No. {c_serial} (Inv: {existing_inv_num})")
                     force_print = st.checkbox("Print Duplicate Copy (Do not save to History)", value=False)
-                    default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
+                    default_inv_num = existing_inv_num # Pre-fill with existing number
                 else:
+                    is_duplicate = False
                     force_print = False
                     default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
 
@@ -552,6 +552,7 @@ if raw_file_obj:
             
             if st.button(btn_label):
                 
+                # Logic: Block if duplicate and checkbox NOT checked
                 if is_duplicate and not force_print:
                     st.error("❌ Invoice already exists! Enable 'Print Duplicate Copy' to print anyway.")
                     st.stop()
@@ -587,7 +588,7 @@ if raw_file_obj:
                         "Period": str(row.get('Period', '')),
                         "Visits": int(visits_val), 
                         "Amount": float(final_amt),
-                        "Notes / Remarks": str(final_notes),  # [ADDED] NEW COLUMN HERE
+                        "Notes / Remarks": str(final_notes),  # [ADDED] NEW COLUMN
                         "Generated By": str(generated_by)
                     }
                     success = save_invoice_to_gsheet(invoice_record, sheet_obj)
