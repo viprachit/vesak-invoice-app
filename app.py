@@ -123,12 +123,8 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
+# [ROBUST DOWNLOADER V3 - SESSION BASED]
 def robust_file_downloader(url):
-    """
-    Downloads file using a session to persist cookies through redirects.
-    This fixes 403 errors on public OneDrive links.
-    """
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -138,34 +134,22 @@ def robust_file_downloader(url):
     })
 
     download_url = url
-    
-    # 1. Clean the URL (Remove existing parameters)
     if "?" in url:
         base_url = url.split("?")[0]
     else:
         base_url = url
 
-    # 2. Append download command
     if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
         download_url = base_url + "?download=1"
     
     try:
-        # Attempt download
         response = session.get(download_url, verify=False, allow_redirects=True)
-        
-        # Check if successful
         if response.status_code == 200:
-            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
             if 'text/html' in content_type and len(response.content) < 5000:
-                # If we got a small HTML page, it might be a login redirect.
-                # Try the original URL without modification as a last resort
                 response = session.get(url, verify=False, allow_redirects=True)
-            
             return BytesIO(response.content)
-            
         raise Exception(f"Status Code: {response.status_code}")
-        
     except Exception as e:
         raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
@@ -301,7 +285,6 @@ def construct_description_html(row):
     shift_str = shift_map.get(shift_raw, shift_raw)
     time_suffix = " (Time)" if "12" in shift_str else ""
     
-    # Simple Description Layout
     return f"""
     <div style="margin-top: 4px;">
         <div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{shift_str}{time_suffix}</div>
@@ -321,32 +304,55 @@ def construct_amount_html(row, billing_qty):
     try: visits_needed = int(float(row.get('Visits', 0)))
     except: visits_needed = 0
     
-    period_raw = str(row.get('Period', '')).strip().lower()
+    period_raw = str(row.get('Period', '')).strip()
+    period_lower = period_raw.lower()
     shift_raw = str(row.get('Shift', '')).strip()
+    shift_lower = shift_raw.lower()
     
     # 2. Logic for Billing Text
     billing_note = ""
     
-    # Scenario: Monthly or Weekly
-    if "month" in period_raw or "week" in period_raw:
-        # If visits needed is greater than what we are billing for (e.g., need 6 months, billing for 1)
-        if visits_needed > billing_qty:
-            unit_name = "Months" if "month" in period_raw else "Weeks"
-            billing_note = f"Next Billing will be generated after the Payment to Continue the Service."
+    # Scenario 1: Monthly or Weekly (Column M)
+    if "month" in period_lower or "week" in period_lower:
+        unit_name = "Month" if "month" in period_lower else "Week"
+        unit_name_plural = "Months" if "month" in period_lower else "Weeks"
+        
+        if visits_needed > 1 and billing_qty == 1:
+            billing_note = "Next Billing will be generated after the Payment to Continue the Service."
+        elif visits_needed > billing_qty:
+            billing_note = f"Next Bill will be Generated after {billing_qty} {unit_name_plural}."
         else:
-            # Paid for X duration
-            unit_name = "Month" if "month" in period_raw else "Week"
             suffix = "s" if billing_qty > 1 else ""
             billing_note = f"Paid for {billing_qty} {unit_name}{suffix}"
-            
-    # Scenario: Daily or Per Visit (treat mostly same)
-    else:
-        # If needed visits > billed visits
-        if visits_needed > billing_qty:
-             billing_note = f"Next Billing will be generated after the Payment to Continue the Service."
+
+    # Scenario 2: Daily (Column M)
+    elif "daily" in period_lower:
+        if visits_needed > 1 and visits_needed < 6 and billing_qty == 1:
+            billing_note = "Next Billing will be generated after the Payment to Continue the Service."
+        elif billing_qty >= visits_needed:
+            billing_note = f"Paid for {visits_needed} Days."
+        elif visits_needed == 1:
+            billing_note = "Paid for 1 Day."
+        elif billing_qty < visits_needed:
+            billing_note = f"Next Bill will be Generated after {billing_qty} Days."
         else:
-             suffix = "s" if billing_qty > 1 else ""
-             billing_note = f"Paid for {billing_qty} Day{suffix}"
+            billing_note = f"Paid for {billing_qty} Days."
+
+    # Scenario 3: Per Visit (Column K -> Shift)
+    elif "per visit" in shift_lower:
+        if visits_needed > 1 and billing_qty == 1:
+            billing_note = "Next Billing will be generated after the Payment to Continue the Service."
+        elif billing_qty >= visits_needed:
+            billing_note = f"Paid for {visits_needed} Days."
+        elif billing_qty < visits_needed:
+            billing_note = f"Next Bill will be Generated after {billing_qty} Days."
+        else:
+             billing_note = f"Paid for {billing_qty} Days."
+    
+    else:
+        # Fallback default
+        suffix = "s" if billing_qty > 1 else ""
+        billing_note = f"Paid for {billing_qty} {period_raw}{suffix}"
 
     # 3. Calculate Total
     total_amount = unit_rate * billing_qty
@@ -354,9 +360,10 @@ def construct_amount_html(row, billing_qty):
     # 4. Display Strings
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_display = shift_map.get(shift_raw, shift_raw)
-    if "12" in shift_display: shift_display += " (Time)"
+    if "12" in shift_display and "Time" not in shift_display: shift_display += " (Time)"
     
-    period_display = "Monthly" if "month" in period_raw else period_raw.capitalize()
+    period_display = "Monthly" if "month" in period_lower else period_raw.capitalize()
+    if "daily" in period_lower: period_display = "Daily"
     
     unit_rate_str = "{:,.0f}".format(unit_rate)
     total_amount_str = "{:,.0f}".format(total_amount)
@@ -367,21 +374,14 @@ def construct_amount_html(row, billing_qty):
         <div style="margin-bottom: 2px;">
             {shift_display} / {period_display} = <b>₹ {unit_rate_str}</b>
         </div>
-        
-        <div style="color: #CC4E00; font-weight: bold; font-size: 10px; margin: 1px 0;">
-            Multiply X {billing_qty}
-        </div>
-        
+        <div style="color: #CC4E00; font-weight: bold; font-size: 10px; margin: 1px 0;">X</div>
+        <div style="font-weight: bold; font-size: 12px; margin: 1px 0;">{billing_qty}</div>
         <div style="border-bottom: 1px solid #ddd; width: 100%; margin: 4px 0;"></div>
-        
         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
             <span style="font-size: 10px; font-weight: bold; color: #002147; text-transform: uppercase;">Total -</span>
             <span style="font-size: 14px; font-weight: bold; color: #000;">Rs. {total_amount_str}</span>
         </div>
-        
-        <div style="font-size: 9px; color: #666; font-style: italic; margin-top: 4px;">
-            {billing_note}
-        </div>
+        <div style="font-size: 9px; color: #666; font-style: italic; margin-top: 4px;">{billing_note}</div>
     </div>
     """
 
@@ -446,6 +446,7 @@ elif data_source == "OneDrive Link":
 if raw_file_obj:
     df = None
     try:
+        # Try reading as Excel first
         if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
         xl = pd.ExcelFile(raw_file_obj)
         sheet_names = xl.sheet_names
