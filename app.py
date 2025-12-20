@@ -606,7 +606,7 @@ if raw_file_obj:
                     period_val = str(row.get('Period', ''))
                     if service_ended: period_val += " [ENDED]"
 
-invoice_record = {
+                    invoice_record = {
                         "Serial No.": str(c_serial), 
                         "Invoice Number": str(inv_num),
                         "Date": str(fmt_date),
