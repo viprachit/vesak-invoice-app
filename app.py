@@ -5,6 +5,7 @@ import os
 import datetime
 import requests
 import math 
+import re 
 from io import BytesIO
 from PIL import Image, ImageFile
 import streamlit.components.v1 as components
@@ -222,6 +223,29 @@ def get_record_by_serial(df_hist, serial_no):
     match = df_hist[df_hist['Serial_Clean'] == target_serial]
     if not match.empty: return match.iloc[0]
     return None
+
+def get_last_billing_qty(df_hist, customer_name, mobile):
+    """Fetches the last paid quantity from history for the same client."""
+    if df_hist.empty or 'Customer Name' not in df_hist.columns or 'Details' not in df_hist.columns:
+        return 1
+    
+    # Filter by Customer Name and Mobile (approx match)
+    mask = (df_hist['Customer Name'].astype(str).str.lower() == str(customer_name).lower())
+    if 'Mobile' in df_hist.columns:
+        mask = mask & (df_hist['Mobile'].astype(str) == str(mobile))
+        
+    client_history = df_hist[mask]
+    
+    if not client_history.empty:
+        # Get the latest entry
+        last_details = str(client_history.iloc[-1]['Details'])
+        # Try to extract number from string like "Paid for 2 Days"
+        # Search for integer in the string
+        match = re.search(r'Paid for (\d+)', last_details)
+        if match:
+            return int(match.group(1))
+    
+    return 1
 
 def save_invoice_to_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
@@ -576,7 +600,6 @@ if raw_file_obj:
     except Exception as e_excel:
         st.error(f"❌ Excel Read Error: {e_excel}")
         st.info("ℹ️ File seems corrupted or password protected.")
-        # Don't stop, allow Tab 2 to work if GSheets connected
 
     # === TAB 1: GENERATOR ===
     with tab1:
@@ -632,16 +655,20 @@ if raw_file_obj:
                         inv_date = st.date_input("Date:", value=datetime.date.today())
                         fmt_date = format_date_with_suffix(inv_date)
                         
+                        existing_record = get_record_by_serial(df_history, c_serial)
+                        
+                        # --- DEFAULT BILLING QTY LOGIC ---
+                        # Try to fetch previous payment info
+                        default_qty = get_last_billing_qty(df_history, c_name, c_mob)
+                        
                         # --- BILLING QUANTITY INPUT ---
                         p_raw = str(row.get('Period', '')).strip()
                         bill_label = "Months" if "month" in p_raw.lower() else "Weeks" if "week" in p_raw.lower() else "Days"
-                        billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=1, step=1)
-                        
-                        existing_record = get_record_by_serial(df_history, c_serial)
+                        billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1)
                         
                         is_duplicate = False
                         existing_inv_num = ""
-                        default_inv_num = "" # Initialize here
+                        default_inv_num = "" 
 
                         if existing_record is not None:
                             existing_inv_num = existing_record['Invoice Number']
@@ -727,8 +754,6 @@ if raw_file_obj:
                             except: visits_val = 0
 
                             period_val = str(row.get('Period', ''))
-                            # if service_ended: period_val += " [ENDED]" # Removed this logic from here
-
                             generated_at_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                             invoice_record = {
@@ -760,7 +785,6 @@ if raw_file_obj:
                                 success = update_invoice_in_gsheet(invoice_record, sheet_obj)
                                 if success: 
                                     st.success(f"✅ Invoice {inv_num} UPDATED in History!")
-                                    # Reset Checkboxes
                                     st.session_state.chk_overwrite = False
                                     st.session_state.chk_force_new = False
                                     st.rerun()
@@ -769,14 +793,12 @@ if raw_file_obj:
                                 success = save_invoice_to_gsheet(invoice_record, sheet_obj)
                                 if success: 
                                     st.success(f"✅ Invoice {inv_num} saved to History!")
-                                    # Reset Checkboxes
                                     st.session_state.chk_overwrite = False
                                     st.session_state.chk_force_new = False
                                     st.rerun()
                                 
                         else:
                             st.info("ℹ️ Generating Duplicate Copy. Database not updated.")
-                            # Reset Checkboxes
                             st.session_state.chk_print_dup = False
                             st.rerun()
                         
