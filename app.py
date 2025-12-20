@@ -32,7 +32,6 @@ def get_google_sheet_client():
         "https://www.googleapis.com/auth/drive",
     ]
     try:
-        # Check if secrets exist
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             s_info = st.secrets["connections"]["gsheets"]
             
@@ -65,7 +64,6 @@ def download_and_save_icon(url, filename):
             response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 img = Image.open(BytesIO(response.content)).convert("RGBA")
-                # Resize specifically for the file type
                 if "logo" in filename:
                     img.thumbnail((200, 200)) 
                 else:
@@ -79,7 +77,6 @@ def download_and_save_icon(url, filename):
 # URLs
 IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
 FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
-# Fallback Logo URL (Medical Cross)
 LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2966/2966327.png" 
 
 download_and_save_icon(IG_URL, "icon-ig.png")
@@ -126,51 +123,41 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
+# [ROBUST DOWNLOADER V4]
 def robust_file_downloader(url):
-    """
-    Downloads file using a session to persist cookies through redirects.
-    This fixes 403 errors on public OneDrive links.
-    """
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': 'https://www.google.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
     })
+    target_url = url
+    if "1drv.ms" in url:
+        try:
+            r = session.head(url, allow_redirects=True)
+            target_url = r.url
+        except: pass
 
-    download_url = url
-    
-    # 1. Clean the URL (Remove existing parameters)
-    if "?" in url:
-        base_url = url.split("?")[0]
+    if "?" in target_url:
+        base_url = target_url.split("?")[0]
+        final_url = f"{base_url}?download=1"
     else:
-        base_url = url
-
-    # 2. Append download command
-    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
-        download_url = base_url + "?download=1"
+        final_url = f"{target_url}?download=1"
     
     try:
-        # Attempt download
-        response = session.get(download_url, verify=False, allow_redirects=True)
-        
-        # Check if successful
+        response = session.get(final_url, verify=False, allow_redirects=True)
         if response.status_code == 200:
-            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
-            if 'text/html' in content_type and len(response.content) < 5000:
-                # If we got a small HTML page, it might be a login redirect.
-                # Try the original URL without modification as a last resort
+            if 'text/html' in content_type:
                 response = session.get(url, verify=False, allow_redirects=True)
-            
-            return BytesIO(response.content)
-            
+                if response.status_code == 200:
+                    return BytesIO(response.content)
+            else:
+                return BytesIO(response.content)
         raise Exception(f"Status Code: {response.status_code}")
-        
     except Exception as e:
-        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
+        raise Exception(f"Download failed: {e}. Check link permissions.")
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -198,21 +185,12 @@ def get_next_invoice_number_gsheet(date_obj, df_hist):
             except: pass
     return f"{date_str}-{next_seq:03d}"
 
-# [NEW] Check based on SERIAL NUMBER instead of Name/Date
 def get_record_by_serial(df_hist, serial_no):
-    """Checks if a Serial No exists in history and returns the record."""
-    if df_hist.empty or 'Serial No.' not in df_hist.columns:
-        return None
-    
-    # Convert to string to ensure matching (e.g. "1" matches "1.0" or 1)
-    # We clean both sides to be safe
+    if df_hist.empty or 'Serial No.' not in df_hist.columns: return None
     df_hist['Serial_Clean'] = df_hist['Serial No.'].astype(str).str.split('.').str[0].str.strip()
     target_serial = str(serial_no).split('.')[0].strip()
-    
     match = df_hist[df_hist['Serial_Clean'] == target_serial]
-    
-    if not match.empty:
-        return match.iloc[0] # Return the first matching row
+    if not match.empty: return match.iloc[0]
     return None
 
 def save_invoice_to_gsheet(data_dict, sheet_obj):
@@ -308,94 +286,91 @@ def construct_description_html(row):
     shift_raw = str(row.get('Shift', '')).strip()
     recurring = str(row.get('Recurring', '')).strip().lower()
     period_raw = str(row.get('Period', '')).strip()
-    visits_raw = row.get('Visits', 0)
-
+    
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_str = shift_map.get(shift_raw, shift_raw)
     time_suffix = " (Time)" if "12" in shift_str else ""
     
-    try: visits = int(float(visits_raw)) if visits_raw and str(visits_raw).lower() != 'nan' else 0
-    except: visits = 0
-
-    p_lower = period_raw.lower()
-    if 'dai' in p_lower: p_single, p_multi = "Day", "Days"
-    elif 'week' in p_lower: p_single, p_multi = "Week", "Weeks"
-    elif 'month' in p_lower: p_single, p_multi = "Month", "Months"
-    else: p_single, p_multi = period_raw, period_raw
-
-    if recurring == 'yes':
-        line1 = f"{shift_str}{time_suffix} - {period_raw}"
-        line2 = "Till the Service Required"
-    else:
-        p_final = p_single if visits == 1 else p_multi
-        line1 = f"{shift_str}{time_suffix}"
-        line2 = f"For {visits} {p_final}"
-
+    # Simple Description Layout
     return f"""
     <div style="margin-top: 4px;">
-        <div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{line1}</div>
-        <div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{line2}</div>
+        <div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{shift_str}{time_suffix}</div>
+        <div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{period_raw}</div>
     </div>
     """
 
-def construct_amount_html(row):
+def construct_amount_html(row, billing_qty):
+    """
+    Constructs the Right Hand Column (Amount Section) logic.
+    Calculates based on 'Rate Agreed' (Unit Rate) x Billing Quantity.
+    """
+    # 1. Get Data
+    try: unit_rate = float(row.get('Unit Rate', 0)) # Mapped from 'Rate Agreed'
+    except: unit_rate = 0.0
+    
+    try: visits_needed = int(float(row.get('Visits', 0)))
+    except: visits_needed = 0
+    
+    period_raw = str(row.get('Period', '')).strip().lower()
     shift_raw = str(row.get('Shift', '')).strip()
-    recurring = str(row.get('Recurring', '')).strip().lower()
-    period_raw = str(row.get('Period', '')).strip()
     
-    def safe_float(val):
-        try:
-            if pd.isna(val) or str(val).strip() == '': return 0.0
-            return float(val)
-        except: return 0.0
-
-    visits = int(safe_float(row.get('Visits', 0)))
-    final_rate = safe_float(row.get('Final Rate', 0))
-    if isinstance(row.get('Final Rate'), pd.Series): 
-        final_rate = safe_float(row.get('Final Rate').iloc[0])
-        
-    unit_rate = safe_float(row.get('Unit Rate', 0))
-    if isinstance(row.get('Unit Rate'), pd.Series):
-        unit_rate = safe_float(row.get('Unit Rate').iloc[0])
-
-    shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
-    shift_str = shift_map.get(shift_raw, shift_raw)
-    time_suffix = " (Time)" if "12" in shift_str else ""
-    shift_display = f"{shift_str}{time_suffix}"
-
-    if unit_rate == 0 and visits > 0 and final_rate > 0:
-        unit_rate = int(final_rate / visits)
-    if visits == 0 and final_rate > 0:
-        visits = 1
-        if unit_rate == 0: unit_rate = int(final_rate)
-
-    unit_rate_disp = "{:,.0f}".format(unit_rate)
-    final_rate_disp = "{:,.0f}".format(final_rate)
-
-    p_lower = period_raw.lower()
-    if 'dai' in p_lower: p_single, p_multi = "Day", "Days"
-    elif 'week' in p_lower: p_single, p_multi = "Week", "Weeks"
-    elif 'month' in p_lower: p_single, p_multi = "Month", "Months"
-    else: p_single, p_multi = period_raw, period_raw
+    # 2. Logic for Billing Text
+    billing_note = ""
     
-    p_final = p_single if visits == 1 else p_multi
-
-    if recurring == 'yes' and 'month' in p_lower:
-        duration_text = "Per Month"
+    # Scenario: Monthly or Weekly
+    if "month" in period_raw or "week" in period_raw:
+        # If visits needed is greater than what we are billing for (e.g., need 6 months, billing for 1)
+        if visits_needed > billing_qty:
+            unit_name = "Months" if "month" in period_raw else "Weeks"
+            billing_note = f"Next Billing will be generated after the Payment to Continue the Service."
+        else:
+            # Paid for X duration
+            unit_name = "Month" if "month" in period_raw else "Week"
+            suffix = "s" if billing_qty > 1 else ""
+            billing_note = f"Paid for {billing_qty} {unit_name}{suffix}"
+            
+    # Scenario: Daily or Per Visit (treat mostly same)
     else:
-        duration_text = f"{visits} {p_final}"
+        # If needed visits > billed visits
+        if visits_needed > billing_qty:
+             billing_note = f"Next Billing will be generated after the Payment to Continue the Service."
+        else:
+             suffix = "s" if billing_qty > 1 else ""
+             billing_note = f"Paid for {billing_qty} Day{suffix}"
 
+    # 3. Calculate Total
+    total_amount = unit_rate * billing_qty
+    
+    # 4. Display Strings
+    shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
+    shift_display = shift_map.get(shift_raw, shift_raw)
+    if "12" in shift_display: shift_display += " (Time)"
+    
+    period_display = "Monthly" if "month" in period_raw else period_raw.capitalize()
+    
+    unit_rate_str = "{:,.0f}".format(unit_rate)
+    total_amount_str = "{:,.0f}".format(total_amount)
+
+    # 5. HTML Construction
     return f"""
-    <div style="text-align: right; font-size: 12px; color: #666;">
-        <div style="display: flex; justify-content: flex-end; align-items: center;">
-            <span>{shift_display} / {p_single} = <b style="color: #333;">₹ {unit_rate_disp}</b></span>
+    <div style="text-align: right; font-size: 11px; color: #555;">
+        <div style="margin-bottom: 2px;">
+            {shift_display} / {period_display} = <b>₹ {unit_rate_str}</b>
         </div>
-        <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
-        <div>{duration_text}</div>
-        <div style="border-bottom: 1px solid #ccc; width: 100%; margin: 4px 0;"></div>
-        <div style="display: flex; justify-content: flex-end; gap: 5px;">
+        
+        <div style="color: #CC4E00; font-weight: bold; font-size: 10px; margin: 1px 0;">
+            Multiply X {billing_qty}
+        </div>
+        
+        <div style="border-bottom: 1px solid #ddd; width: 100%; margin: 4px 0;"></div>
+        
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
             <span style="font-size: 10px; font-weight: bold; color: #002147; text-transform: uppercase;">Total -</span>
-            <span style="font-size: 14px; font-weight: bold; color: #000;">₹ {final_rate_disp}</span>
+            <span style="font-size: 14px; font-weight: bold; color: #000;">Rs. {total_amount_str}</span>
+        </div>
+        
+        <div style="font-size: 9px; color: #666; font-style: italic; margin-top: 4px;">
+            {billing_note}
         </div>
     </div>
     """
@@ -432,6 +407,9 @@ with st.sidebar:
         st.error("❌ Not Connected to Google Sheets")
     
     data_source = st.radio("Load Confirmed Sheet via:", ["Upload File", "OneDrive Link"])
+    
+    st.divider()
+    service_ended = st.checkbox("🛑 Mark Service as ENDED?")
 
 raw_file_obj = None
 
@@ -458,7 +436,6 @@ elif data_source == "OneDrive Link":
 if raw_file_obj:
     df = None
     try:
-        # Try reading as Excel first
         if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
         xl = pd.ExcelFile(raw_file_obj)
         sheet_names = xl.sheet_names
@@ -513,13 +490,10 @@ if raw_file_obj:
             c_mob = row.get('Mobile', '')
             
             inc_def, exc_def = get_base_lists(c_plan, c_sub)
-            desc_col_html = construct_description_html(row) 
-            amount_col_html = construct_amount_html(row)
-
+            
             st.divider()
             col1, col2 = st.columns(2)
             
-            # GET HISTORY FROM GOOGLE SHEET
             df_history = get_history_data(sheet_obj)
             
             with col1:
@@ -527,7 +501,12 @@ if raw_file_obj:
                 inv_date = st.date_input("Date:", value=datetime.date.today())
                 fmt_date = format_date_with_suffix(inv_date)
                 
-                # --- CHECK IF INVOICE EXISTS BASED ON SERIAL NUMBER ---
+                # --- BILLING QUANTITY INPUT ---
+                # Get Period to guess the label
+                p_raw = str(row.get('Period', '')).strip()
+                bill_label = "Months" if "month" in p_raw.lower() else "Weeks" if "week" in p_raw.lower() else "Days"
+                billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=1, step=1)
+                
                 existing_record = get_record_by_serial(df_history, c_serial)
                 
                 if existing_record is not None:
@@ -535,7 +514,7 @@ if raw_file_obj:
                     existing_inv_num = existing_record['Invoice Number']
                     st.warning(f"⚠️ Invoice already exists for Serial No. {c_serial} (Inv: {existing_inv_num})")
                     force_print = st.checkbox("Print Duplicate Copy (Do not save to History)", value=False)
-                    default_inv_num = existing_inv_num # Pre-fill with existing number
+                    default_inv_num = existing_inv_num 
                 else:
                     is_duplicate = False
                     force_print = False
@@ -547,11 +526,8 @@ if raw_file_obj:
                 
             with col2:
                 generated_by_input = st.text_input("Invoice Generated By:", placeholder="")
-                
-                if not generated_by_input:
-                    generated_by = "Vesak Patient Care"
-                else:
-                    generated_by = generated_by_input
+                if not generated_by_input: generated_by = "Vesak Patient Care"
+                else: generated_by = generated_by_input
 
                 final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def)
                 
@@ -560,11 +536,14 @@ if raw_file_obj:
             
             final_notes = st.text_area("Notes:", value=c_notes_raw)
             
+            # --- CONSTRUCT HTML WITH NEW INPUTS ---
+            desc_col_html = construct_description_html(row) 
+            amount_col_html = construct_amount_html(row, billing_qty)
+            
             btn_label = "Generate Duplicate Copy (PDF Only)" if (is_duplicate and force_print) else "Generate & Save Invoice"
             
             if st.button(btn_label):
                 
-                # Logic: Block if duplicate and checkbox NOT checked
                 if is_duplicate and not force_print:
                     st.error("❌ Invoice already exists! Enable 'Print Duplicate Copy' to print anyway.")
                     st.stop()
@@ -572,16 +551,21 @@ if raw_file_obj:
                 clean_plan = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
                 inv_num = inv_num_input
                 
+                # --- CALCULATE TOTAL FOR SAVING ---
                 def safe_float(val):
                     try: return float(val) if not pd.isna(val) else 0.0
                     except: return 0.0
                 
-                final_amt = safe_float(row.get('Final Rate', 0))
+                # Rate Agreed is the Unit Rate in our map
+                unit_rate_val = safe_float(row.get('Unit Rate', 0))
+                total_billed_amount = unit_rate_val * billing_qty
                 
                 if not force_print:
-                    # STRICT TYPE CASTING TO FIX JSON ERROR
                     try: visits_val = int(safe_float(row.get('Visits', 0)))
                     except: visits_val = 0
+
+                    period_val = str(row.get('Period', ''))
+                    if service_ended: period_val += " [ENDED]"
 
                     invoice_record = {
                         "Serial No.": str(c_serial), 
@@ -597,10 +581,10 @@ if raw_file_obj:
                         "Plan": str(clean_plan),
                         "Shift": str(row.get('Shift', '')),
                         "Recurring Service": str(row.get('Recurring', '')),
-                        "Period": str(row.get('Period', '')),
+                        "Period": period_val, 
                         "Visits": int(visits_val), 
-                        "Amount": float(final_amt),
-                        "Notes / Remarks": str(final_notes),  # [ADDED] NEW COLUMN HERE
+                        "Amount": float(total_billed_amount), # Saving the calculated amount
+                        "Notes / Remarks": str(final_notes),  
                         "Generated By": str(generated_by)
                     }
                     success = save_invoice_to_gsheet(invoice_record, sheet_obj)
