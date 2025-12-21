@@ -26,9 +26,17 @@ LOGO_FILE = "logo.png"
 URL_CONFIG_FILE = "url_config.txt"
 
 # --- CHECKBOX STATE INITIALIZATION ---
-if 'chk_force_new' not in st.session_state: st.session_state.chk_force_new = False
 if 'chk_print_dup' not in st.session_state: st.session_state.chk_print_dup = False
 if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = False
+
+# Callback functions to ensure mutual exclusivity
+def on_print_dup_change():
+    if st.session_state.chk_print_dup:
+        st.session_state.chk_overwrite = False
+
+def on_overwrite_change():
+    if st.session_state.chk_overwrite:
+        st.session_state.chk_print_dup = False
 
 # --- CONNECT TO GOOGLE SHEETS ---
 def get_google_sheet_client():
@@ -174,7 +182,6 @@ def robust_file_downloader(url):
         
     except Exception as e:
         raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
-
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -562,10 +569,10 @@ elif data_source == "OneDrive Link":
         except Exception as e: 
             st.sidebar.error(f"Link Error: {e}")
 
-# --- TABS: GENERATOR | SERVICE MANAGER ---
-tab1, tab2 = st.tabs(["🧾 Generate Invoice", "🛑 Manage Services"])
+# --- TABS: GENERATOR | FORCE NEW | SERVICE MANAGER ---
+tab1, tab2, tab3 = st.tabs(["🧾 Generate Invoice", "🆕 Force New Invoice", "🛑 Manage Services"])
 
-# --- PROCESS FILE IF LOADED (FOR TAB 1) ---
+# --- PROCESS FILE IF LOADED ---
 if raw_file_obj:
     df = None
     try:
@@ -581,165 +588,183 @@ if raw_file_obj:
         st.error(f"❌ Excel Read Error: {e_excel}")
         st.info("ℹ️ File seems corrupted or password protected.")
 
-    # === TAB 1: GENERATOR ===
-    with tab1:
-        if df is not None:
-            try:
-                df = normalize_columns(df, COLUMN_ALIASES)
-                missing = [k for k in ['Name', 'Mobile', 'Final Rate', 'Service Required', 'Unit Rate'] if k not in df.columns]
-                if missing: st.error(f"Missing columns: {missing}"); st.stop()
-                
-                st.success("✅ Data Loaded")
-                
-                # --- FILTER BY DATE FEATURE ---
-                filter_col1, filter_col2 = st.columns([1, 2])
-                with filter_col1:
-                    enable_date_filter = st.checkbox("Filter Customer List by Date")
-                
-                selected_date_filter = None
-                if enable_date_filter:
-                    with filter_col2:
-                        selected_date_filter = st.date_input("Show invoices generated on/after:", value=datetime.date.today())
-                
-                # Filter Logic using History
-                df_history = get_history_data(sheet_obj)
-                
-                filtered_labels = []
-                if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
-                     # Convert history dates
-                     df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
-                     filtered_hist = df_history[df_history['DateObj'] >= selected_date_filter]
-                     valid_names = filtered_hist['Customer Name'].unique()
-                     # Filter main df based on names present in history for that date range
-                     df_filtered = df[df['Name'].isin(valid_names)]
-                     if df_filtered.empty:
-                         st.warning("No customers found for the selected date filter.")
-                         df_filtered = df # Fallback
-                     
-                     df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
-                     unique_labels = [""] + list(df_filtered['Label'].unique())
-                else:
-                    df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                    unique_labels = [""] + list(df['Label'].unique())
+    if df is not None:
+        try:
+            df = normalize_columns(df, COLUMN_ALIASES)
+            missing = [k for k in ['Name', 'Mobile', 'Final Rate', 'Service Required', 'Unit Rate'] if k not in df.columns]
+            if missing: st.error(f"Missing columns: {missing}"); st.stop()
+            
+            st.success("✅ Data Loaded")
+            
+            # --- FILTER BY DATE FEATURE ---
+            filter_col1, filter_col2 = st.columns([1, 2])
+            with filter_col1:
+                enable_date_filter = st.checkbox("Filter Customer List by Date")
+            
+            selected_date_filter = None
+            if enable_date_filter:
+                with filter_col2:
+                    selected_date_filter = st.date_input("Show invoices generated on/after:", value=datetime.date.today())
+            
+            # Filter Logic using History
+            df_history = get_history_data(sheet_obj)
+            
+            if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
+                 # Convert history dates
+                 df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
+                 filtered_hist = df_history[df_history['DateObj'] >= selected_date_filter]
+                 valid_names = filtered_hist['Customer Name'].unique()
+                 # Filter main df based on names present in history for that date range
+                 df_filtered = df[df['Name'].isin(valid_names)]
+                 if df_filtered.empty:
+                     st.warning("No customers found for the selected date filter.")
+                     df_filtered = df # Fallback
+                 
+                 df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
+                 unique_labels = [""] + list(df_filtered['Label'].unique())
+            else:
+                df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+                unique_labels = [""] + list(df['Label'].unique())
 
-                selected_label = st.selectbox("Select Customer:", unique_labels)
+            # === SHARED LOGIC FOR GENERATING INVOICE ===
+            def render_invoice_ui(mode="standard"):
+                """
+                mode: 'standard' (Tab 1) or 'force_new' (Tab 2)
+                """
+                selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
                 
                 if not selected_label:
                     st.info("👈 Please select a customer to proceed.")
-                else:
-                    row = df[df['Label'] == selected_label].iloc[0]
-                    
-                    # Prepare Data
-                    c_serial_raw = row.get('Serial No.', '')
-                    try: c_serial = str(int(float(c_serial_raw)))
-                    except: c_serial = str(c_serial_raw)
+                    return
 
-                    c_plan = row.get('Service Required', '')
-                    c_sub = row.get('Sub Service', '')
-                    c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
-                    c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
-                    c_name = row.get('Name', '')
-                    c_gender = row.get('Gender', '')
-                    
-                    raw_age = row.get('Age', '')
-                    try: 
-                        if pd.isna(raw_age) or raw_age == '': c_age = ""
-                        else: c_age = str(int(float(raw_age)))
-                    except: c_age = str(raw_age)
+                row = df[df['Label'] == selected_label].iloc[0]
+                
+                # Prepare Data
+                c_serial_raw = row.get('Serial No.', '')
+                try: c_serial = str(int(float(c_serial_raw)))
+                except: c_serial = str(c_serial_raw)
 
-                    c_addr = row.get('Address', '')
-                    c_location = row.get('Location', c_addr) 
-                    c_mob = row.get('Mobile', '')
-                    
-                    inc_def, exc_def = get_base_lists(c_plan, c_sub)
-                    
-                    st.divider()
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
-                        inv_date = st.date_input("Date:", value=datetime.date.today())
-                        fmt_date = format_date_with_suffix(inv_date)
-                        
-                        # --- DEFAULT BILLING QTY LOGIC ---
-                        default_qty = get_last_billing_qty(df_history, c_name, c_mob)
-                        
-                        # --- BILLING QUANTITY INPUT ---
-                        p_raw = str(row.get('Period', '')).strip()
-                        bill_label = "Months" if "month" in p_raw.lower() else "Weeks" if "week" in p_raw.lower() else "Days"
-                        billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1)
-                        
-                        existing_record = get_record_by_serial(df_history, c_serial)
-                        
-                        is_duplicate = False
-                        existing_inv_num = ""
-                        default_inv_num = "" 
+                c_plan = row.get('Service Required', '')
+                c_sub = row.get('Sub Service', '')
+                c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
+                c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
+                c_name = row.get('Name', '')
+                c_gender = row.get('Gender', '')
+                
+                raw_age = row.get('Age', '')
+                try: 
+                    if pd.isna(raw_age) or raw_age == '': c_age = ""
+                    else: c_age = str(int(float(raw_age)))
+                except: c_age = str(raw_age)
 
-                        if existing_record is not None:
-                            existing_inv_num = existing_record['Invoice Number']
-                            # Check date match for pure duplicate
-                            if existing_record['Date'] == fmt_date:
-                                is_duplicate = True
+                c_addr = row.get('Address', '')
+                c_location = row.get('Location', c_addr) 
+                c_mob = row.get('Mobile', '')
+                
+                inc_def, exc_def = get_base_lists(c_plan, c_sub)
+                
+                st.divider()
+                col1, col2 = st.columns(2)
+                
+                # df_history already loaded outside
+                
+                with col1:
+                    st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
+                    inv_date = st.date_input("Date:", value=datetime.date.today(), key=f"date_{mode}")
+                    fmt_date = format_date_with_suffix(inv_date)
+                    
+                    # --- DEFAULT BILLING QTY LOGIC ---
+                    default_qty = get_last_billing_qty(df_history, c_name, c_mob)
+                    
+                    # --- BILLING QUANTITY INPUT ---
+                    p_raw = str(row.get('Period', '')).strip()
+                    bill_label = "Months" if "month" in p_raw.lower() else "Weeks" if "week" in p_raw.lower() else "Days"
+                    billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}")
+                    
+                    existing_record = get_record_by_serial(df_history, c_serial)
+                    
+                    is_duplicate = False
+                    existing_inv_num = ""
+                    default_inv_num = "" 
+
+                    if existing_record is not None:
+                        existing_inv_num = existing_record['Invoice Number']
+                        # Check date match for pure duplicate
+                        if existing_record['Date'] == fmt_date:
+                            is_duplicate = True
+                            if mode == "standard":
                                 st.warning(f"⚠️ Invoice already exists for today! (Inv: {existing_inv_num})")
-                            else:
+                        else:
+                            if mode == "standard":
                                 st.info(f"ℹ️ Previous Invoice Found: {existing_inv_num} (Re-billing)")
-                                default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
+                    
+                    # LOGIC FOR INVOICE NUMBER BASED ON MODE
+                    if mode == "force_new":
+                        default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
+                        st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
+                    else: # Standard Mode
+                        if is_duplicate:
+                            default_inv_num = existing_inv_num
                         else:
                             default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
-                            
-                        # Checkboxes
-                        force_new = st.checkbox("Force New Invoice (Ignore Duplicate Check)", key="chk_force_new")
-                        
-                        overwrite_existing = False
-                        force_print = False
-                        
+                    
+                    # --- CHECKBOXES FOR TAB 1 ---
+                    chk_print_dup = False
+                    chk_overwrite = False
+
+                    if mode == "standard":
+                        # Only show checkboxes if duplicate exists
                         if is_duplicate:
                             col_dup1, col_dup2 = st.columns(2)
-                            with col_dup1: force_print = st.checkbox("Print Duplicate Copy (Do not save to History)", key="chk_print_dup")
-                            with col_dup2: overwrite_existing = st.checkbox("🛠️ Overwrite Existing Entry (Use with Caution)", key="chk_overwrite")
+                            with col_dup1: chk_print_dup = st.checkbox("Generate Duplicate Invoice (PDF Only)", key="chk_print_dup", on_change=on_print_dup_change)
+                            with col_dup2: chk_overwrite = st.checkbox("Overwrite existing entry (Update History)", key="chk_overwrite", on_change=on_overwrite_change)
+                        
+                    inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}")
+                    
+                    st.caption(f"Ref Date: {c_ref_date}")
+                    
+                with col2:
+                    generated_by_input = st.text_input("Invoice Generated By:", placeholder="", key=f"gen_by_{mode}")
+                    if not generated_by_input: generated_by = "Vesak Patient Care"
+                    else: generated_by = generated_by_input
+
+                    final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def, key=f"exc_{mode}")
+                    
+                st.write("**Included Services:**")
+                st.text(", ".join(inc_def))
+                
+                final_notes = st.text_area("Notes:", value=c_notes_raw, key=f"notes_{mode}")
+                
+                # --- CONSTRUCT HTML WITH NEW INPUTS ---
+                desc_col_html = construct_description_html(row) 
+                amount_col_html = construct_amount_html(row, billing_qty)
+                
+                # BUTTON LABEL & LOGIC
+                btn_label = "Generate & Save Invoice"
+                if mode == "force_new":
+                    btn_label = "⚠ Force Generate New Invoice"
+                elif chk_print_dup:
+                    btn_label = "Generate Duplicate Copy"
+                elif chk_overwrite:
+                    btn_label = "⚠ Update/Overwrite Invoice"
+                
+                # ACTION
+                if st.button(btn_label, key=f"btn_{mode}"):
+                    
+                    # VALIDATION FOR STANDARD TAB
+                    proceed = True
+                    if mode == "standard" and not chk_print_dup:
+                        if is_duplicate and not chk_overwrite:
+                            st.error("❌ Invoice exists! Select 'Generate Duplicate' or 'Overwrite'.")
+                            proceed = False
                         else:
-                            if force_new:
-                                st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
-                                default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
-                        
-                        # Set default if duplicate and not forced new/overwritten
-                        if is_duplicate and not force_new and not overwrite_existing:
-                             default_inv_num = existing_inv_num
-
-                        inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num)
-                        
-                        st.caption(f"Ref Date: {c_ref_date}")
-                        
-                    with col2:
-                        generated_by_input = st.text_input("Invoice Generated By:", placeholder="")
-                        if not generated_by_input: generated_by = "Vesak Patient Care"
-                        else: generated_by = generated_by_input
-
-                        final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def)
-                        
-                    st.write("**Included Services:**")
-                    st.text(", ".join(inc_def))
+                            proceed = True
                     
-                    final_notes = st.text_area("Notes:", value=c_notes_raw)
-                    
-                    # --- CONSTRUCT HTML WITH NEW INPUTS ---
-                    desc_col_html = construct_description_html(row) 
-                    amount_col_html = construct_amount_html(row, billing_qty)
-                    
-                    btn_label = "Generate Duplicate Copy (PDF Only)" if (is_duplicate and not force_new and not overwrite_existing and force_print) else "Generate & Save Invoice"
-                    if is_duplicate and overwrite_existing: btn_label = "⚠ Update/Overwrite Existing Invoice"
-                    if force_new: btn_label = "⚠ Force Generate New Invoice"
-                    
-                    if st.button(btn_label):
-                        
-                        if is_duplicate and not force_new and not overwrite_existing and not force_print:
-                            st.error("❌ Invoice exists! Select 'Force New', 'Overwrite', or 'Print Duplicate'.")
-                            st.stop()
-                        
+                    if proceed:
                         clean_plan = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
                         inv_num = inv_num_input
                         
-                        # --- CALCULATE TOTAL FOR SAVING ---
+                        # Calculation
                         def safe_float(val):
                             try: return float(val) if not pd.isna(val) else 0.0
                             except: return 0.0
@@ -747,18 +772,18 @@ if raw_file_obj:
                         unit_rate_val = safe_float(row.get('Unit Rate', 0))
                         total_billed_amount = unit_rate_val * billing_qty
                         
-                        # Extract "Paid for..." text for Details column
                         unit_label_for_details = "Month" if "month" in p_raw.lower() else "Week" if "week" in p_raw.lower() else "Day"
                         def get_plural_save(unit, qty):
-                             if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
-                             if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
-                             if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
-                             return unit
+                                if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
+                                if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
+                                if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
+                                return unit
                         details_text = f"Paid for {billing_qty} {get_plural_save(unit_label_for_details, billing_qty)}"
 
                         success = False
                         
-                        if not force_print:
+                        # --- DB OPERATIONS ---
+                        if not chk_print_dup:
                             try: visits_val = int(safe_float(row.get('Visits', 0)))
                             except: visits_val = 0
 
@@ -790,25 +815,23 @@ if raw_file_obj:
                                 "Service Ended": ""
                             }
                             
-                            if is_duplicate and overwrite_existing:
-                                success = update_invoice_in_gsheet(invoice_record, sheet_obj)
-                                if success: 
-                                    st.success(f"✅ Invoice {inv_num} UPDATED in History!")
-                                    st.session_state.chk_overwrite = False
-                                    st.session_state.chk_force_new = False
-                                    # Don't rerun immediately, allow PDF download
-                            else:
-                                success = save_invoice_to_gsheet(invoice_record, sheet_obj)
-                                if success: 
-                                    st.success(f"✅ Invoice {inv_num} saved to History!")
-                                    st.session_state.chk_overwrite = False
-                                    st.session_state.chk_force_new = False
-                                    # Don't rerun immediately, allow PDF download
+                            if mode == "standard" and chk_overwrite:
+                                if update_invoice_in_gsheet(invoice_record, sheet_obj):
+                                    st.success(f"✅ Invoice {inv_num} UPDATED!")
+                                    success = True
+                            elif mode == "standard" and not is_duplicate:
+                                if save_invoice_to_gsheet(invoice_record, sheet_obj):
+                                    st.success(f"✅ Invoice {inv_num} SAVED!")
+                                    success = True
+                            elif mode == "force_new":
+                                if save_invoice_to_gsheet(invoice_record, sheet_obj):
+                                    st.success(f"✅ New Invoice {inv_num} CREATED!")
+                                    success = True
                         else:
-                            st.info("ℹ️ Generating Duplicate Copy. Database not updated.")
-                            st.session_state.chk_print_dup = False
-                            success = True 
-                        
+                            st.info("ℹ️ Generating Duplicate Copy (No DB Change).")
+                            success = True
+
+                        # --- PDF PREVIEW ---
                         if success:
                             inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
                             exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
@@ -1007,12 +1030,17 @@ if raw_file_obj:
                                 pdf_bytes = convert_html_to_pdf(pdf_html)
                                 if pdf_bytes:
                                     st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
-
-            except Exception as e:
+        except Exception as e:
                 st.error(f"Error: {e}")
 
-    # === TAB 2: MANAGE SERVICES ===
+    # === TAB 2: FORCE NEW INVOICE ===
     with tab2:
+        if df is not None:
+             # Just render the same UI with 'force_new' mode
+             render_invoice_ui(mode="force_new")
+
+    # === TAB 3: MANAGE SERVICES ===
+    with tab3:
         st.header("🛑 Manage Active Services")
         df_hist = get_history_data(sheet_obj)
         
@@ -1060,4 +1088,3 @@ if raw_file_obj:
                     st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
-
