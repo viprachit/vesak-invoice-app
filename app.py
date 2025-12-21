@@ -276,7 +276,6 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
 def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
-        # Robust search (Target Column 2 specifically if possible)
         try:
              cell = sheet_obj.find(str(invoice_number).strip(), in_column=2)
         except:
@@ -284,7 +283,6 @@ def mark_service_ended(sheet_obj, invoice_number, end_date):
              
         if cell:
             end_time = end_date.strftime("%Y-%m-%d") + " " + datetime.datetime.now().strftime("%H:%M:%S")
-            # Update Column V (22nd column) using A1 notation for reliability
             range_name = f"V{cell.row}"
             sheet_obj.update(range_name, [[end_time]])
             return True, end_time
@@ -524,6 +522,20 @@ if raw_file_obj:
                 if enable_date_filter:
                     with filter_col2:
                         selected_date_filter = st.date_input("Show invoices generated on/after:", value=datetime.date.today(), key=f"filt_date_{mode}")
+                    
+                    if not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
+                         df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
+                         filtered_hist = df_history[df_history['DateObj'] >= selected_date_filter]
+                         valid_names = filtered_hist['Customer Name'].unique()
+                         df_filtered = df[df['Name'].isin(valid_names)]
+                         if df_filtered.empty:
+                             st.warning("No customers found for the selected date filter.")
+                             df_filtered = df 
+                         df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
+                         unique_labels = [""] + list(df_filtered['Label'].unique())
+                    else:
+                        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+                        unique_labels = [""] + list(df['Label'].unique())
                 
                 # --- LOGIC TO POPULATE LIST BASED ON MODE ---
                 if mode == "force_new":
@@ -540,20 +552,10 @@ if raw_file_obj:
                     else:
                         unique_labels = [""]
                 else:
-                    # Standard Mode
-                    if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
-                         df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
-                         filtered_hist = df_history[df_history['DateObj'] >= selected_date_filter]
-                         valid_names = filtered_hist['Customer Name'].unique()
-                         df_filtered = df[df['Name'].isin(valid_names)]
-                         if df_filtered.empty:
-                             st.warning("No customers found for the selected date filter.")
-                             df_filtered = df 
-                         df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
-                         unique_labels = [""] + list(df_filtered['Label'].unique())
-                    else:
-                        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                        unique_labels = [""] + list(df['Label'].unique())
+                    # Standard Mode: already handled by the enable_date_filter block above if not force_new
+                    if not enable_date_filter:
+                         df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+                         unique_labels = [""] + list(df['Label'].unique())
 
                 selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
                 
@@ -1052,10 +1054,27 @@ if raw_file_obj:
         df_hist = get_history_data(sheet_obj)
         if not df_hist.empty:
             df_hist = df_hist.fillna("")
+            
+            # --- DATE FILTER FOR MANAGE SERVICES ---
+            col_manage_filter_1, col_manage_filter_2 = st.columns([1, 2])
+            with col_manage_filter_1:
+                enable_manage_filter = st.checkbox("Filter Active Services by Date", key="manage_filter_chk")
+            
+            filter_date_manage = None
+            if enable_manage_filter:
+                with col_manage_filter_2:
+                    filter_date_manage = st.date_input("Show services started on/after:", value=datetime.date.today(), key="manage_filter_date")
+            
             if 'Service Ended' not in df_hist.columns:
                 st.warning("⚠️ 'Service Ended' column not found in History sheet.")
             else:
                 active_services = df_hist[df_hist['Service Ended'].astype(str).str.strip() == ""]
+                
+                # Apply Date Filter if Enabled
+                if enable_manage_filter and not active_services.empty and 'Date' in active_services.columns:
+                    active_services['DateObj'] = pd.to_datetime(active_services['Date'], errors='coerce').dt.date
+                    active_services = active_services[active_services['DateObj'] >= filter_date_manage]
+
                 if not active_services.empty:
                     active_services['Display'] = (
                         active_services['Invoice Number'].astype(str) + " - " + 
@@ -1078,6 +1097,6 @@ if raw_file_obj:
                             else:
                                 st.error(f"❌ Failed to update: {time_ended}")
                 else:
-                    st.info("No active services found (All rows have End Dates).")
+                    st.info("No active services found matching criteria.")
         else:
             st.info("History sheet is empty.")
