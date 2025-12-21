@@ -521,21 +521,12 @@ if raw_file_obj:
                 
                 if enable_date_filter:
                     with filter_col2:
-                        selected_date_filter = st.date_input("Show invoices generated on/after:", value=datetime.date.today(), key=f"filt_date_{mode}")
-                    
-                    if not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
-                         df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
-                         filtered_hist = df_history[df_history['DateObj'] >= selected_date_filter]
-                         valid_names = filtered_hist['Customer Name'].unique()
-                         df_filtered = df[df['Name'].isin(valid_names)]
-                         if df_filtered.empty:
-                             st.warning("No customers found for the selected date filter.")
-                             df_filtered = df 
-                         df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
-                         unique_labels = [""] + list(df_filtered['Label'].unique())
-                    else:
-                        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                        unique_labels = [""] + list(df['Label'].unique())
+                        # --- MODIFICATION 1: Change Label to show range logic ---
+                        selected_date_filter = st.date_input("Show customers for Date +/- 1 Day:", value=datetime.date.today(), key=f"filt_date_{mode}")
+                        
+                        # Calculate Date Range
+                        d_start = selected_date_filter - datetime.timedelta(days=1)
+                        d_end = selected_date_filter + datetime.timedelta(days=1)
                 
                 # --- LOGIC TO POPULATE LIST BASED ON MODE ---
                 if mode == "force_new":
@@ -543,7 +534,8 @@ if raw_file_obj:
                         hist_data = df_history.copy()
                         if enable_date_filter and 'Date' in hist_data.columns:
                              hist_data['DateObj'] = pd.to_datetime(hist_data['Date'], errors='coerce').dt.date
-                             hist_data = hist_data[hist_data['DateObj'] >= selected_date_filter]
+                             # --- MODIFICATION 2: Apply Range Filter ---
+                             hist_data = hist_data[(hist_data['DateObj'] >= d_start) & (hist_data['DateObj'] <= d_end)]
                         
                         hist_names = hist_data['Customer Name'].unique()
                         df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
@@ -552,10 +544,21 @@ if raw_file_obj:
                     else:
                         unique_labels = [""]
                 else:
-                    # Standard Mode: already handled by the enable_date_filter block above if not force_new
-                    if not enable_date_filter:
-                         df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                         unique_labels = [""] + list(df['Label'].unique())
+                    # Standard Mode
+                    if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
+                         df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
+                         # --- MODIFICATION 2: Apply Range Filter ---
+                         filtered_hist = df_history[(df_history['DateObj'] >= d_start) & (df_history['DateObj'] <= d_end)]
+                         valid_names = filtered_hist['Customer Name'].unique()
+                         df_filtered = df[df['Name'].isin(valid_names)]
+                         if df_filtered.empty:
+                             st.warning(f"No customers found between {d_start} and {d_end}.")
+                             df_filtered = df 
+                         df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
+                         unique_labels = [""] + list(df_filtered['Label'].unique())
+                    else:
+                        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+                        unique_labels = [""] + list(df['Label'].unique())
 
                 selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
                 
@@ -594,7 +597,6 @@ if raw_file_obj:
                     p_raw = str(row.get('Period', '')).strip()
                     bill_label = "Months" if "month" in p_raw.lower() else "Weeks" if "week" in p_raw.lower() else "Days"
                     
-                    # --- FIXED: ADDED LABEL TO KEY TO FORCE RESET ---
                     billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
                     
                     existing_record = get_record_by_serial(df_history, c_serial)
@@ -1063,7 +1065,12 @@ if raw_file_obj:
             filter_date_manage = None
             if enable_manage_filter:
                 with col_manage_filter_2:
-                    filter_date_manage = st.date_input("Show services started on/after:", value=datetime.date.today(), key="manage_filter_date")
+                    # --- MODIFICATION 1: Change Label to show range logic ---
+                    filter_date_manage = st.date_input("Show services started on/after +/- 1 Day:", value=datetime.date.today(), key="manage_filter_date")
+                    
+                    # Calculate Date Range
+                    d_start_manage = filter_date_manage - datetime.timedelta(days=1)
+                    d_end_manage = filter_date_manage + datetime.timedelta(days=1)
             
             if 'Service Ended' not in df_hist.columns:
                 st.warning("⚠️ 'Service Ended' column not found in History sheet.")
@@ -1073,7 +1080,8 @@ if raw_file_obj:
                 # Apply Date Filter if Enabled
                 if enable_manage_filter and not active_services.empty and 'Date' in active_services.columns:
                     active_services['DateObj'] = pd.to_datetime(active_services['Date'], errors='coerce').dt.date
-                    active_services = active_services[active_services['DateObj'] >= filter_date_manage]
+                    # --- MODIFICATION 2: Apply Range Filter ---
+                    active_services = active_services[(active_services['DateObj'] >= d_start_manage) & (active_services['DateObj'] <= d_end_manage)]
 
                 if not active_services.empty:
                     active_services['Display'] = (
@@ -1097,6 +1105,9 @@ if raw_file_obj:
                             else:
                                 st.error(f"❌ Failed to update: {time_ended}")
                 else:
-                    st.info("No active services found matching criteria.")
+                    if enable_manage_filter:
+                         st.info(f"No active services found starting between {d_start_manage} and {d_end_manage}.")
+                    else:
+                         st.info("No active services found matching criteria.")
         else:
             st.info("History sheet is empty.")
