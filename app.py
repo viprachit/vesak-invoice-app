@@ -1021,15 +1021,15 @@ if raw_file_obj:
                             
                             components.html(html_template, height=1000, scrolling=True)
                             
-                            # --- PDF Generation (Offline Engine Fallback) ---
-                            if abs_logo_path and abs_ig_path:
-                                pdf_html = html_template.replace(f'src="data:image/png;base64,{logo_b64}"', f'src="{abs_logo_path}"')
-                                pdf_html = pdf_html.replace(f'src="data:image/png;base64,{ig_b64}"', f'src="{abs_ig_path}"')
-                                pdf_html = pdf_html.replace(f'src="data:image/png;base64,{fb_b64}"', f'src="{abs_fb_path}"')
-                                
-                                pdf_bytes = convert_html_to_pdf(pdf_html)
-                                if pdf_bytes:
-                                    st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
+                        # --- PDF Generation (Offline Engine Fallback) ---
+                        if abs_logo_path and abs_ig_path:
+                            pdf_html = html_template.replace(f'src="data:image/png;base64,{logo_b64}"', f'src="{abs_logo_path}"')
+                            pdf_html = pdf_html.replace(f'src="data:image/png;base64,{ig_b64}"', f'src="{abs_ig_path}"')
+                            pdf_html = pdf_html.replace(f'src="data:image/png;base64,{fb_b64}"', f'src="{abs_fb_path}"')
+                            
+                            pdf_bytes = convert_html_to_pdf(pdf_html)
+                            if pdf_bytes:
+                                st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
 
             except Exception as e:
                 st.error(f"Error: {e}")
