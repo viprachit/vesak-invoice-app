@@ -692,7 +692,8 @@ if raw_file_obj:
                         total_billed_amount = unit_rate_val * billing_qty
                         
                         unit_label_for_details = "Month" if "month" in p_raw.lower() else "Week" if "week" in p_raw.lower() else "Day"
-                        # --- PER VISIT OVERRIDE FOR SAVING ---
+                        
+                        # --- CRITICAL FIX: OVERRIDE FOR SAVING ---
                         if "per visit" in str(row.get('Shift', '')).lower():
                              unit_label_for_details = "Visit"
 
