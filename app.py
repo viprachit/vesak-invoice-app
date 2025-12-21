@@ -1033,6 +1033,12 @@ if raw_file_obj:
         except Exception as e:
                 st.error(f"Error: {e}")
 
+    # === TAB 1: GENERATE INVOICE ===
+    with tab1:
+        if df is not None:
+             # THIS LINE WAS MISSING:
+             render_invoice_ui(mode="standard")
+
     # === TAB 2: FORCE NEW INVOICE ===
     with tab2:
         if df is not None:
