@@ -137,41 +137,51 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [ROBUST DOWNLOADER V4]
+# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
 def robust_file_downloader(url):
+    """
+    Downloads file using a session to persist cookies through redirects.
+    This fixes 403 errors on public OneDrive links.
+    """
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.google.com/'
     })
-    target_url = url
-    if "1drv.ms" in url:
-        try:
-            r = session.head(url, allow_redirects=True)
-            target_url = r.url
-        except: pass
 
-    if "?" in target_url:
-        base_url = target_url.split("?")[0]
-        final_url = f"{base_url}?download=1"
+    download_url = url
+    
+    # 1. Clean the URL (Remove existing parameters)
+    if "?" in url:
+        base_url = url.split("?")[0]
     else:
-        final_url = f"{target_url}?download=1"
+        base_url = url
+
+    # 2. Append download command
+    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
+        download_url = base_url + "?download=1"
     
     try:
-        response = session.get(final_url, verify=False, allow_redirects=True)
+        # Attempt download
+        response = session.get(download_url, verify=False, allow_redirects=True)
+        
+        # Check if successful
         if response.status_code == 200:
+            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
-            if 'text/html' in content_type:
+            if 'text/html' in content_type and len(response.content) < 5000:
+                # If we got a small HTML page, it might be a login redirect.
+                # Try the original URL without modification as a last resort
                 response = session.get(url, verify=False, allow_redirects=True)
-                if response.status_code == 200:
-                    return BytesIO(response.content)
-            else:
-                return BytesIO(response.content)
+            
+            return BytesIO(response.content)
+            
         raise Exception(f"Status Code: {response.status_code}")
+        
     except Exception as e:
-        raise Exception(f"Download failed: {e}. Check link permissions.")
+        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -1020,8 +1030,7 @@ if raw_file_obj:
                                 pdf_bytes = convert_html_to_pdf(pdf_html)
                                 if pdf_bytes:
                                     st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
-
-            except Exception as e:
+        except Exception as e:
                 st.error(f"Error: {e}")
 
     # === TAB 2: FORCE NEW INVOICE ===
@@ -1079,3 +1088,4 @@ if raw_file_obj:
                     st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
+
