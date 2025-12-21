@@ -183,6 +183,7 @@ def robust_file_downloader(url):
     except Exception as e:
         raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
+
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
 def get_history_data(sheet_obj):
@@ -748,11 +749,16 @@ if raw_file_obj:
                 elif chk_overwrite:
                     btn_label = "⚠ Update/Overwrite Invoice"
                 
-                # ACTION
+                # Logic to ensure only valid operations proceed
+                proceed = False
+                
+                # If Duplicate is checked, proceed is TRUE
+                if chk_print_dup:
+                    proceed = True
+                
                 if st.button(btn_label, key=f"btn_{mode}"):
                     
                     # VALIDATION FOR STANDARD TAB
-                    proceed = True
                     if mode == "standard" and not chk_print_dup:
                         if is_duplicate and not chk_overwrite:
                             st.error("❌ Invoice exists! Select 'Generate Duplicate' or 'Overwrite'.")
@@ -1031,7 +1037,7 @@ if raw_file_obj:
                                 if pdf_bytes:
                                     st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
         except Exception as e:
-                st.error(f"Error: {e}")
+            st.error(f"Error: {e}")
 
     # === TAB 2: FORCE NEW INVOICE ===
     with tab2:
@@ -1088,4 +1094,3 @@ if raw_file_obj:
                     st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
-
