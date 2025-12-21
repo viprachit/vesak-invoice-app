@@ -216,15 +216,12 @@ def get_active_invoice_number(df_hist, customer_name):
     """Finds the last active invoice (Service Ended is empty) for a customer."""
     if df_hist.empty or 'Customer Name' not in df_hist.columns: return None
     
-    # Filter by name
     mask = df_hist['Customer Name'].astype(str).str.lower() == str(customer_name).lower()
     user_hist = df_hist[mask]
     
     if user_hist.empty: return None
     
-    # Check for empty Service Ended
     if 'Service Ended' in user_hist.columns:
-        # We fillna with empty string to be safe
         user_hist = user_hist.copy()
         user_hist['Service Ended'] = user_hist['Service Ended'].fillna('').astype(str).str.strip()
         active_rows = user_hist[user_hist['Service Ended'] == '']
@@ -279,17 +276,15 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
 def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
-        # Search for the invoice number explicitly in Column 2 (Invoice Number column)
-        # to avoid false positives. 
+        # Robust search (Target Column 2 specifically if possible)
         try:
              cell = sheet_obj.find(str(invoice_number).strip(), in_column=2)
         except:
-             # Fallback for older gspread versions
              cell = sheet_obj.find(str(invoice_number).strip())
              
         if cell:
             end_time = end_date.strftime("%Y-%m-%d") + " " + datetime.datetime.now().strftime("%H:%M:%S")
-            # Update Column V (22nd column) specifically using A1 notation which is more robust
+            # Update Column V (22nd column) using A1 notation for reliability
             range_name = f"V{cell.row}"
             sheet_obj.update(range_name, [[end_time]])
             return True, end_time
@@ -532,27 +527,20 @@ if raw_file_obj:
                 
                 # --- LOGIC TO POPULATE LIST BASED ON MODE ---
                 if mode == "force_new":
-                    # Get list from HISTORY (Requirement 1)
                     if not df_history.empty and 'Customer Name' in df_history.columns:
                         hist_data = df_history.copy()
                         if enable_date_filter and 'Date' in hist_data.columns:
                              hist_data['DateObj'] = pd.to_datetime(hist_data['Date'], errors='coerce').dt.date
                              hist_data = hist_data[hist_data['DateObj'] >= selected_date_filter]
                         
-                        # Get names from History
                         hist_names = hist_data['Customer Name'].unique()
-                        
-                        # Match against Confirmed sheet (df) to ensure we have details
-                        # Create labels only for people who are in BOTH lists (to be safe with data)
                         df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                        
-                        # Filter df to only show those present in History
                         df_filtered = df[df['Name'].isin(hist_names)]
                         unique_labels = [""] + list(df_filtered['Label'].unique())
                     else:
                         unique_labels = [""]
                 else:
-                    # Standard Mode: Get list from CONFIRMED sheet
+                    # Standard Mode
                     if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
                          df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
                          filtered_hist = df_history[df_history['DateObj'] >= selected_date_filter]
@@ -573,7 +561,6 @@ if raw_file_obj:
                     st.info("👈 Please select a customer to proceed.")
                     return
 
-                # Get the row details from the CONFIRMED sheet (Requirement 3: Compare details from confirmed)
                 row = df[df['Label'] == selected_label].iloc[0]
                 
                 # Data Prep
@@ -679,7 +666,11 @@ if raw_file_obj:
                                 if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
                                 if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
                                 return unit
+                        
+                        # --- MODIFICATION: ADD (New) for Force New Mode ---
                         details_text = f"Paid for {billing_qty} {get_plural_save(unit_label_for_details, billing_qty)}"
+                        if mode == "force_new":
+                            details_text += " (New)"
 
                         success = False
                         
@@ -731,7 +722,7 @@ if raw_file_obj:
                             if final_notes:
                                 notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
 
-                            # --- WEB PREVIEW TEMPLATE (Rich HTML/Tailwind) ---
+                            # --- WEB PREVIEW TEMPLATE ---
                             html_template = f"""
                             <!DOCTYPE html>
                             <html lang="en">
@@ -907,6 +898,132 @@ if raw_file_obj:
                                         html2pdf().set(opt).from(element).save();
                                     }}
                                 </script>
+                            </body>
+                            </html>
+                            """
+                            components.html(html_template, height=1000, scrolling=True)
+                            
+                            # --- OFFLINE PDF ENGINE TEMPLATE (SIMPLE HTML) ---
+                            pdf_desc_html = f"<b>{clean_plan}</b><br/><br/>{str(row.get('Shift',''))}<br/><i>{str(row.get('Period',''))}</i>"
+                            
+                            pdf_amount_html = f"""
+                            <div align="right">
+                                {str(row.get('Shift',''))} / {str(row.get('Period',''))} = <b>Rs. {unit_rate_val:.0f}</b><br/>
+                                <font color="#CC4E00"><b>X</b></font><br/>
+                                Paid for {billing_qty} {unit_label_for_details}<br/>
+                                <hr/>
+                                <b>TOTAL - Rs. {total_billed_amount:.0f}</b>
+                            </div>
+                            """
+                            
+                            simple_inc_html = "".join([f"<li>{item}</li>" for item in inc_def])
+                            simple_exc_html = "".join([f"<li>{item}</li>" for item in final_exc])
+                            
+                            simple_notes = ""
+                            if final_notes:
+                                simple_notes = f"""
+                                <div style="background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd; margin-top: 20px;">
+                                    <b>NOTES:</b><br/>{final_notes}
+                                </div>
+                                """
+
+                            pdf_html_content = f"""
+                            <html>
+                            <head>
+                                <style>
+                                    body {{ font-family: Helvetica, sans-serif; font-size: 12px; color: #333; }}
+                                    .header {{ width: 100%; border-bottom: 1px solid #ddd; padding-bottom: 20px; margin-bottom: 20px; }}
+                                    .logo {{ width: 80px; height: auto; }}
+                                    .title {{ font-size: 24px; color: #002147; font-weight: bold; }}
+                                    .subtitle {{ font-size: 10px; color: #666; }}
+                                    .invoice-details {{ text-align: right; }}
+                                    .bill-to {{ width: 100%; background-color: #f0f4f8; padding: 15px; margin-bottom: 20px; border-left: 5px solid #002147; }}
+                                    table {{ width: 100%; border-collapse: collapse; }}
+                                    th {{ background-color: #002147; color: white; padding: 8px; text-align: left; text-transform: uppercase; font-size: 10px; }}
+                                    td {{ padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }}
+                                    .footer {{ margin-top: 50px; border-top: 1px solid #eee; padding-top: 10px; font-size: 10px; color: #777; }}
+                                </style>
+                            </head>
+                            <body>
+                                <table class="header">
+                                    <tr>
+                                        <td width="60%">
+                                            <img src="{abs_logo_path}" class="logo" /><br/>
+                                            <span class="title">Vesak Care Foundation</span><br/>
+                                            <span class="subtitle">
+                                                Web: vesakcare.com | Email: vesakcare@gmail.com<br/>
+                                                Phone: +91 7777 000 878
+                                            </span>
+                                        </td>
+                                        <td width="40%" class="invoice-details">
+                                            <h2 style="color: #ccc; letter-spacing: 5px;">INVOICE</h2>
+                                            <b>Date:</b> {fmt_date}<br/>
+                                            <b>No:</b> {inv_num}
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <table class="bill-to">
+                                    <tr>
+                                        <td width="50%">
+                                            <b style="color: #C5A065; font-size: 9px; text-transform: uppercase;">Billed To</b><br/>
+                                            <b style="font-size: 14px; color: #002147;">{c_name}</b><br/>
+                                            {c_gender} | {c_age} Yrs
+                                        </td>
+                                        <td width="50%">
+                                            <b>Phone:</b> {c_mob}<br/>
+                                            <b>Address:</b> {c_addr}
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <table style="margin-bottom: 20px;">
+                                    <thead>
+                                        <tr>
+                                            <th width="60%">Description</th>
+                                            <th width="40%" align="right">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>{pdf_desc_html}</td>
+                                            <td align="right">{pdf_amount_html}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+
+                                <table>
+                                    <tr>
+                                        <td width="50%" valign="top">
+                                            <b style="color: #002147; font-size: 10px; border-bottom: 1px solid #C5A065;">SERVICES INCLUDED</b>
+                                            <ul>{simple_inc_html}</ul>
+                                        </td>
+                                        <td width="50%" valign="top">
+                                            <b style="color: #999; font-size: 10px; border-bottom: 1px solid #eee;">SERVICES NOT INCLUDED</b>
+                                            <ul style="color: #777;">{simple_exc_html}</ul>
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                {simple_notes}
+
+                                <div style="text-align: center; margin-top: 40px; color: #999; font-style: italic;">
+                                    Thank you for choosing Vesak Care Foundation!
+                                </div>
+
+                                <div class="footer">
+                                    <table width="100%">
+                                        <tr>
+                                            <td>
+                                                <b>Our Offices</b><br/>
+                                                Pune • Mumbai • Kolhapur
+                                            </td>
+                                            <td align="right">
+                                                @VesakCare
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </div>
                             </body>
                             </html>
                             """
