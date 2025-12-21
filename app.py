@@ -25,7 +25,8 @@ st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="�
 LOGO_FILE = "logo.png"
 URL_CONFIG_FILE = "url_config.txt"
 
-# --- CHECKBOX STATE INITIALIZATION ---
+# --- CHECKBOX STATE MANAGEMENT ---
+# Initialize session state keys if they don't exist
 if 'chk_print_dup' not in st.session_state: st.session_state.chk_print_dup = False
 if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = False
 
@@ -713,15 +714,12 @@ if raw_file_obj:
                     chk_overwrite = False
 
                     if mode == "standard":
-                        # Only show checkboxes if duplicate exists or user wants to overwrite specific logic
-                        chk_print_dup = st.checkbox("Generate Duplicate Invoice (PDF Only)", key="chk_print_dup", on_change=on_print_dup_change)
-                        chk_overwrite = st.checkbox("Overwrite existing entry (Update History)", key="chk_overwrite", on_change=on_overwrite_change)
+                        # Only show checkboxes if duplicate exists
+                        if is_duplicate:
+                            col_dup1, col_dup2 = st.columns(2)
+                            with col_dup1: chk_print_dup = st.checkbox("Generate Duplicate Invoice (PDF Only)", key="chk_print_dup", on_change=on_print_dup_change)
+                            with col_dup2: chk_overwrite = st.checkbox("Overwrite existing entry (Update History)", key="chk_overwrite", on_change=on_overwrite_change)
                         
-                        # Logic to allow overwrite even if not strictly same date, based on Inv Num
-                        # But here strictly same date duplicate logic prevails for safety default
-                        
-                        # If user chose force new via tab 2, this section is skipped
-
                     inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}")
                     
                     st.caption(f"Ref Date: {c_ref_date}")
@@ -1021,15 +1019,15 @@ if raw_file_obj:
                             
                             components.html(html_template, height=1000, scrolling=True)
                             
-                        # --- PDF Generation (Offline Engine Fallback) ---
-                        if abs_logo_path and abs_ig_path:
-                            pdf_html = html_template.replace(f'src="data:image/png;base64,{logo_b64}"', f'src="{abs_logo_path}"')
-                            pdf_html = pdf_html.replace(f'src="data:image/png;base64,{ig_b64}"', f'src="{abs_ig_path}"')
-                            pdf_html = pdf_html.replace(f'src="data:image/png;base64,{fb_b64}"', f'src="{abs_fb_path}"')
-                            
-                            pdf_bytes = convert_html_to_pdf(pdf_html)
-                            if pdf_bytes:
-                                st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
+                            # --- PDF Generation (Offline Engine Fallback) ---
+                            if abs_logo_path and abs_ig_path:
+                                pdf_html = html_template.replace(f'src="data:image/png;base64,{logo_b64}"', f'src="{abs_logo_path}"')
+                                pdf_html = pdf_html.replace(f'src="data:image/png;base64,{ig_b64}"', f'src="{abs_ig_path}"')
+                                pdf_html = pdf_html.replace(f'src="data:image/png;base64,{fb_b64}"', f'src="{abs_fb_path}"')
+                                
+                                pdf_bytes = convert_html_to_pdf(pdf_html)
+                                if pdf_bytes:
+                                    st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
 
             except Exception as e:
                 st.error(f"Error: {e}")
