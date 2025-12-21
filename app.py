@@ -249,12 +249,36 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         st.error(f"Error saving to Google Sheet: {e}")
         return False
 
+# --- IMPROVED ROBUST UPDATE FUNCTION ---
 def update_invoice_in_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
-        cell = sheet_obj.find(str(data_dict["Invoice Number"]))
-        if cell:
-            row_idx = cell.row
+        # Get all values from the sheet to ensure we match BOTH Serial No and Invoice No
+        all_rows = sheet_obj.get_all_values()
+        
+        target_inv = str(data_dict["Invoice Number"]).strip()
+        target_serial = str(data_dict["Serial No."]).strip()
+        
+        row_idx_to_update = None
+        
+        # Iterate through rows to find the exact match
+        for idx, row in enumerate(all_rows):
+            # idx is 0-based, row is a list of strings
+            if len(row) < 2: continue # Skip empty rows
+            
+            # Assuming Column 1 (index 0) is Serial No, Column 2 (index 1) is Invoice Number
+            # We clean the sheet data to handle potential "123.0" vs "123" issues
+            sheet_serial = str(row[0]).strip()
+            try: sheet_serial = str(int(float(sheet_serial)))
+            except: pass
+            
+            sheet_inv = str(row[1]).strip()
+            
+            if sheet_serial == target_serial and sheet_inv == target_inv:
+                row_idx_to_update = idx + 1 # GSheet uses 1-based indexing
+                break
+        
+        if row_idx_to_update:
             row_values = [
                 data_dict.get("Serial No.", ""), data_dict.get("Invoice Number", ""), data_dict.get("Date", ""),
                 data_dict.get("Generated At", ""), data_dict.get("Customer Name", ""), data_dict.get("Age", ""),
@@ -265,10 +289,13 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
                 data_dict.get("Amount Paid", ""), data_dict.get("Details", ""), data_dict.get("Service Started", ""),
                 data_dict.get("Service Ended", "")
             ]
-            range_name = f"A{row_idx}:V{row_idx}"
+            range_name = f"A{row_idx_to_update}:V{row_idx_to_update}"
             sheet_obj.update(range_name, [row_values])
             return True
-        return False
+        else:
+            st.error(f"❌ Critical Error: Could not find original row with Serial '{target_serial}' AND Invoice '{target_inv}' to overwrite. Operation cancelled to prevent data corruption.")
+            return False
+            
     except Exception as e:
         st.error(f"Error updating Google Sheet: {e}")
         return False
