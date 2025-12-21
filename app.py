@@ -279,11 +279,19 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
 def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
-        cell = sheet_obj.find(str(invoice_number))
+        # Search for the invoice number explicitly in Column 2 (Invoice Number column)
+        # to avoid false positives. 
+        try:
+             cell = sheet_obj.find(str(invoice_number).strip(), in_column=2)
+        except:
+             # Fallback for older gspread versions
+             cell = sheet_obj.find(str(invoice_number).strip())
+             
         if cell:
             end_time = end_date.strftime("%Y-%m-%d") + " " + datetime.datetime.now().strftime("%H:%M:%S")
-            # Column 22 is V (Service Ended)
-            sheet_obj.update_cell(cell.row, 22, end_time) 
+            # Update Column V (22nd column) specifically using A1 notation which is more robust
+            range_name = f"V{cell.row}"
+            sheet_obj.update(range_name, [[end_time]])
             return True, end_time
         return False, "Invoice not found"
     except Exception as e:
@@ -902,136 +910,6 @@ if raw_file_obj:
                             </body>
                             </html>
                             """
-                            components.html(html_template, height=1000, scrolling=True)
-                            
-                            # --- OFFLINE PDF ENGINE TEMPLATE (SIMPLE HTML - FIX FOR TYPE ERROR) ---
-                            # Standard table layout for xhtml2pdf which doesn't support flexbox
-                            
-                            # Re-construct simple descriptions for PDF engine
-                            pdf_desc_html = f"<b>{clean_plan}</b><br/><br/>{str(row.get('Shift',''))}<br/><i>{str(row.get('Period',''))}</i>"
-                            
-                            # Re-construct simple amount for PDF engine
-                            pdf_amount_html = f"""
-                            <div align="right">
-                                {str(row.get('Shift',''))} / {str(row.get('Period',''))} = <b>Rs. {unit_rate_val:.0f}</b><br/>
-                                <font color="#CC4E00"><b>X</b></font><br/>
-                                Paid for {billing_qty} {unit_label_for_details}<br/>
-                                <hr/>
-                                <b>TOTAL - Rs. {total_billed_amount:.0f}</b>
-                            </div>
-                            """
-                            
-                            simple_inc_html = "".join([f"<li>{item}</li>" for item in inc_def])
-                            simple_exc_html = "".join([f"<li>{item}</li>" for item in final_exc])
-                            
-                            simple_notes = ""
-                            if final_notes:
-                                simple_notes = f"""
-                                <div style="background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd; margin-top: 20px;">
-                                    <b>NOTES:</b><br/>{final_notes}
-                                </div>
-                                """
-
-                            pdf_html_content = f"""
-                            <html>
-                            <head>
-                                <style>
-                                    body {{ font-family: Helvetica, sans-serif; font-size: 12px; color: #333; }}
-                                    .header {{ width: 100%; border-bottom: 1px solid #ddd; padding-bottom: 20px; margin-bottom: 20px; }}
-                                    .logo {{ width: 80px; height: auto; }}
-                                    .title {{ font-size: 24px; color: #002147; font-weight: bold; }}
-                                    .subtitle {{ font-size: 10px; color: #666; }}
-                                    .invoice-details {{ text-align: right; }}
-                                    .bill-to {{ width: 100%; background-color: #f0f4f8; padding: 15px; margin-bottom: 20px; border-left: 5px solid #002147; }}
-                                    table {{ width: 100%; border-collapse: collapse; }}
-                                    th {{ background-color: #002147; color: white; padding: 8px; text-align: left; text-transform: uppercase; font-size: 10px; }}
-                                    td {{ padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }}
-                                    .footer {{ margin-top: 50px; border-top: 1px solid #eee; padding-top: 10px; font-size: 10px; color: #777; }}
-                                </style>
-                            </head>
-                            <body>
-                                <table class="header">
-                                    <tr>
-                                        <td width="60%">
-                                            <img src="{abs_logo_path}" class="logo" /><br/>
-                                            <span class="title">Vesak Care Foundation</span><br/>
-                                            <span class="subtitle">
-                                                Web: vesakcare.com | Email: vesakcare@gmail.com<br/>
-                                                Phone: +91 7777 000 878
-                                            </span>
-                                        </td>
-                                        <td width="40%" class="invoice-details">
-                                            <h2 style="color: #ccc; letter-spacing: 5px;">INVOICE</h2>
-                                            <b>Date:</b> {fmt_date}<br/>
-                                            <b>No:</b> {inv_num}
-                                        </td>
-                                    </tr>
-                                </table>
-
-                                <table class="bill-to">
-                                    <tr>
-                                        <td width="50%">
-                                            <b style="color: #C5A065; font-size: 9px; text-transform: uppercase;">Billed To</b><br/>
-                                            <b style="font-size: 14px; color: #002147;">{c_name}</b><br/>
-                                            {c_gender} | {c_age} Yrs
-                                        </td>
-                                        <td width="50%">
-                                            <b>Phone:</b> {c_mob}<br/>
-                                            <b>Address:</b> {c_addr}
-                                        </td>
-                                    </tr>
-                                </table>
-
-                                <table style="margin-bottom: 20px;">
-                                    <thead>
-                                        <tr>
-                                            <th width="60%">Description</th>
-                                            <th width="40%" align="right">Amount</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>{pdf_desc_html}</td>
-                                            <td align="right">{pdf_amount_html}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-
-                                <table>
-                                    <tr>
-                                        <td width="50%" valign="top">
-                                            <b style="color: #002147; font-size: 10px; border-bottom: 1px solid #C5A065;">SERVICES INCLUDED</b>
-                                            <ul>{simple_inc_html}</ul>
-                                        </td>
-                                        <td width="50%" valign="top">
-                                            <b style="color: #999; font-size: 10px; border-bottom: 1px solid #eee;">SERVICES NOT INCLUDED</b>
-                                            <ul style="color: #777;">{simple_exc_html}</ul>
-                                        </td>
-                                    </tr>
-                                </table>
-
-                                {simple_notes}
-
-                                <div style="text-align: center; margin-top: 40px; color: #999; font-style: italic;">
-                                    Thank you for choosing Vesak Care Foundation!
-                                </div>
-
-                                <div class="footer">
-                                    <table width="100%">
-                                        <tr>
-                                            <td>
-                                                <b>Our Offices</b><br/>
-                                                Pune • Mumbai • Kolhapur
-                                            </td>
-                                            <td align="right">
-                                                @VesakCare
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </div>
-                            </body>
-                            </html>
-                            """
                             
                             # --- GENERATE PDF FROM SIMPLE HTML ---
                             if abs_logo_path:
@@ -1072,7 +950,7 @@ if raw_file_obj:
                     manual_end_date = st.date_input("Service End Date:", value=datetime.date.today())
 
                     if selected_service_disp:
-                        inv_to_end = selected_service_disp.split(" - ")[0]
+                        inv_to_end = selected_service_disp.split(" - ")[0].strip()
                         name_to_end = selected_service_disp.split(" - ")[1].split(" (")[0]
                         st.warning(f"Are you sure you want to end service for **{name_to_end}** (Invoice: {inv_to_end}) on **{manual_end_date}**?")
                         if st.button("Mark Service as ENDED 🛑"):
