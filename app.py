@@ -1026,8 +1026,8 @@ if raw_file_obj:
                                 if pdf_bytes:
                                     st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
 
-            except Exception as e:
-                st.error(f"Error: {e}")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
     # === TAB 2: FORCE NEW INVOICE ===
     with tab2:
@@ -1084,3 +1084,4 @@ if raw_file_obj:
                     st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
+
