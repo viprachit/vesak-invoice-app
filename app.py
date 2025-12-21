@@ -384,14 +384,26 @@ def construct_amount_html(row, billing_qty):
     period_lower = period_raw.lower()
     shift_raw = str(row.get('Shift', '')).strip()
     
+    # NEW LOGIC FOR DETECTING "PER VISIT"
+    is_per_visit = "per visit" in shift_raw.lower()
+    
     billing_note = ""
     def get_plural(unit, qty):
         if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
         if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
         if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
+        if "visit" in unit.lower(): return "Visits" if qty > 1 else "Visit" # Added Visit Plural
         return unit
 
-    if "month" in period_lower or "week" in period_lower:
+    if is_per_visit:
+        # --- NEW LOGIC FOR PER VISIT ---
+        paid_text = f"Paid for {billing_qty} {get_plural('Visit', billing_qty)}"
+        if visits_needed > 1 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
+        elif billing_qty >= visits_needed: billing_note = f"Paid for {visits_needed} Visits."
+        elif visits_needed == 1: billing_note = "Paid for 1 Visit."
+        elif billing_qty < visits_needed: billing_note = f"Next Bill will be Generated after {billing_qty} Visits."
+        else: billing_note = paid_text
+    elif "month" in period_lower or "week" in period_lower:
         base_unit = "Month" if "month" in period_lower else "Week"
         paid_text = f"Paid for {billing_qty} {get_plural(base_unit, billing_qty)}"
         if visits_needed > 1 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
@@ -404,12 +416,6 @@ def construct_amount_html(row, billing_qty):
         elif visits_needed == 1: billing_note = "Paid for 1 Day."
         elif billing_qty < visits_needed: billing_note = f"Next Bill will be Generated after {billing_qty} Days."
         else: billing_note = paid_text
-    elif "per visit" in shift_raw.lower():
-        paid_text = f"Paid for {billing_qty} {get_plural('Day', billing_qty)}"
-        if visits_needed > 1 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
-        elif billing_qty >= visits_needed: billing_note = f"Paid for {visits_needed} Days."
-        elif billing_qty < visits_needed: billing_note = f"Next Bill will be Generated after {billing_qty} Days."
-        else: billing_note = paid_text
     else:
         paid_text = f"Paid for {billing_qty} {period_raw}"
         billing_note = ""
@@ -418,12 +424,18 @@ def construct_amount_html(row, billing_qty):
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_display = shift_map.get(shift_raw, shift_raw)
     if "12" in shift_display and "Time" not in shift_display: shift_display += " (Time)"
+    
     period_display = "Monthly" if "month" in period_lower else period_raw.capitalize()
     if "daily" in period_lower: period_display = "Daily"
+    # Adjust display for per visit
+    if is_per_visit: period_display = "Visit"
     
     unit_rate_str = "{:,.0f}".format(unit_rate)
     total_amount_str = "{:,.0f}".format(total_amount)
+    
     unit_label = "Month" if "month" in period_lower else "Week" if "week" in period_lower else "Day"
+    if is_per_visit: unit_label = "Visit" # Correct unit label for X calc
+    
     paid_for_text = f"Paid for {billing_qty} {get_plural(unit_label, billing_qty)}"
 
     return f"""
@@ -597,7 +609,17 @@ if raw_file_obj:
                     fmt_date = format_date_with_suffix(inv_date)
                     default_qty = get_last_billing_qty(df_history, c_name, c_mob)
                     p_raw = str(row.get('Period', '')).strip()
-                    bill_label = "Months" if "month" in p_raw.lower() else "Weeks" if "week" in p_raw.lower() else "Days"
+                    shift_raw = str(row.get('Shift', '')).strip() # Get shift for logic
+                    
+                    # --- MODIFIED LABEL LOGIC ---
+                    if "per visit" in shift_raw.lower():
+                        bill_label = "Visits"
+                    elif "month" in p_raw.lower():
+                        bill_label = "Months"
+                    elif "week" in p_raw.lower():
+                        bill_label = "Weeks"
+                    else:
+                        bill_label = "Days"
                     
                     # --- FIXED: ADDED LABEL TO KEY TO FORCE RESET ---
                     billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
@@ -670,10 +692,15 @@ if raw_file_obj:
                         total_billed_amount = unit_rate_val * billing_qty
                         
                         unit_label_for_details = "Month" if "month" in p_raw.lower() else "Week" if "week" in p_raw.lower() else "Day"
+                        # --- PER VISIT OVERRIDE FOR SAVING ---
+                        if "per visit" in str(row.get('Shift', '')).lower():
+                             unit_label_for_details = "Visit"
+
                         def get_plural_save(unit, qty):
                                 if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
                                 if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
                                 if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
+                                if "visit" in unit.lower(): return "Visits" if qty > 1 else "Visit"
                                 return unit
                         
                         details_text = f"Paid for {billing_qty} {get_plural_save(unit_label_for_details, billing_qty)}"
@@ -911,13 +938,16 @@ if raw_file_obj:
                             components.html(html_template, height=1000, scrolling=True)
                             
                             # --- OFFLINE PDF ENGINE TEMPLATE (SIMPLE HTML) ---
+                            # --- FIX FOR PDF ENGINE VISITS DISPLAY ---
+                            pdf_unit_label = unit_label_for_details
+                            
                             pdf_desc_html = f"<b>{clean_plan}</b><br/><br/>{str(row.get('Shift',''))}<br/><i>{str(row.get('Period',''))}</i>"
                             
                             pdf_amount_html = f"""
                             <div align="right">
                                 {str(row.get('Shift',''))} / {str(row.get('Period',''))} = <b>Rs. {unit_rate_val:.0f}</b><br/>
                                 <font color="#CC4E00"><b>X</b></font><br/>
-                                Paid for {billing_qty} {unit_label_for_details}<br/>
+                                Paid for {billing_qty} {pdf_unit_label}<br/>
                                 <hr/>
                                 <b>TOTAL - Rs. {total_billed_amount:.0f}</b>
                             </div>
