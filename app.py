@@ -39,7 +39,6 @@ def on_overwrite_change():
         st.session_state.chk_print_dup = False
 
 # --- CONNECT TO GOOGLE SHEETS (OPTIMIZED) ---
-# [CHANGED] Added @st.cache_resource. This ensures we authenticate only ONCE per session.
 @st.cache_resource
 def get_google_sheet_client():
     """Connects to Google Sheets using the standard gspread library."""
@@ -73,7 +72,6 @@ def get_google_sheet_client():
     return None
 
 # --- AUTO-DOWNLOAD ICONS (OPTIMIZED) ---
-# [CHANGED] Added @st.cache_resource. Prevents redundant network checks.
 @st.cache_resource
 def download_and_save_icon(url, filename):
     if not os.path.exists(filename):
@@ -172,9 +170,7 @@ def robust_file_downloader(url):
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
-# [CRITICAL CHANGE HERE] 
-# Added ttl=15. This keeps data in memory for only 15 seconds. 
-# After 15 seconds, if you perform an action, it checks Google Sheets again.
+# [CRITICAL] TTL=15s ensures fresh data on app restart
 @st.cache_data(show_spinner=False, ttl=15)
 def get_history_data(_sheet_obj):
     if _sheet_obj is None: return pd.DataFrame()
@@ -253,32 +249,38 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
             data_dict.get("Service Ended", "")
         ]
         sheet_obj.append_row(row_values)
-        
-        # [CRITICAL] Clear cache immediately after save
         get_history_data.clear()
-        
         return True
     except Exception as e:
         st.error(f"Error saving to Google Sheet: {e}")
         return False
 
-# --- IMPROVED ROBUST UPDATE FUNCTION ---
-def update_invoice_in_gsheet(data_dict, sheet_obj):
+# --- IMPROVED ROBUST UPDATE FUNCTION (FIXED LOGIC) ---
+# [CRITICAL FIX] Uses BOTH Serial No. and Original Invoice No. to find the row.
+def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
     if sheet_obj is None: return False
     try:
         all_rows = sheet_obj.get_all_values()
-        target_inv = str(data_dict["Invoice Number"]).strip()
+        
+        # TARGET 1: Serial No (Static, must match)
         target_serial = str(data_dict["Serial No."]).strip()
+        # TARGET 2: Original Invoice (The one before editing)
+        target_inv_search = str(original_inv_to_find).strip()
+        
         row_idx_to_update = None
         
         for idx, row in enumerate(all_rows):
             if len(row) < 2: continue 
-            sheet_serial = str(row[0]).strip()
-            try: sheet_serial = str(int(float(sheet_serial)))
-            except: pass
+            
+            # Clean Sheet Serial (handle 101.0 -> 101)
+            sheet_serial_raw = str(row[0]).strip()
+            try: sheet_serial = str(int(float(sheet_serial_raw)))
+            except: sheet_serial = sheet_serial_raw
+            
             sheet_inv = str(row[1]).strip()
             
-            if sheet_serial == target_serial and sheet_inv == target_inv:
+            # [LOGIC] Match BOTH
+            if sheet_serial == target_serial and sheet_inv == target_inv_search:
                 row_idx_to_update = idx + 1 
                 break
         
@@ -295,13 +297,10 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
             ]
             range_name = f"A{row_idx_to_update}:V{row_idx_to_update}"
             sheet_obj.update(range_name, [row_values])
-
-            # [CRITICAL] Clear cache immediately after update
             get_history_data.clear()
-
             return True
         else:
-            st.error(f"❌ Critical Error: Could not find original row with Serial '{target_serial}' AND Invoice '{target_inv}' to overwrite.")
+            st.error(f"❌ Critical Error: Could not find row with Serial '{target_serial}' AND Invoice '{target_inv_search}'.")
             return False
             
     except Exception as e:
@@ -320,10 +319,7 @@ def mark_service_ended(sheet_obj, invoice_number, end_date):
             end_time = end_date.strftime("%Y-%m-%d") + " " + datetime.datetime.now().strftime("%H:%M:%S")
             range_name = f"V{cell.row}"
             sheet_obj.update(range_name, [[end_time]])
-
-            # [CRITICAL] Clear cache immediately after marking ended
             get_history_data.clear()
-
             return True, end_time
         return False, "Invoice not found"
     except Exception as e:
@@ -421,7 +417,6 @@ def construct_amount_html(row, billing_qty):
     period_lower = period_raw.lower()
     shift_raw = str(row.get('Shift', '')).strip()
     
-    # NEW LOGIC FOR DETECTING "PER VISIT"
     is_per_visit = "per visit" in shift_raw.lower()
     
     billing_note = ""
@@ -498,12 +493,10 @@ def convert_html_to_pdf(source_html):
 # ==========================================
 st.title("🏥 Vesak Care - Invoice Generator")
 
-# Absolute paths for PDF engine
 abs_logo_path = get_absolute_path(LOGO_FILE)
 abs_ig_path = get_absolute_path("icon-ig.png")
 abs_fb_path = get_absolute_path("icon-fb.png")
 
-# Base64 for Web Preview
 logo_b64 = get_clean_image_base64(LOGO_FILE)
 ig_b64 = get_clean_image_base64("icon-ig.png")
 fb_b64 = get_clean_image_base64("icon-fb.png")
@@ -763,8 +756,9 @@ if raw_file_obj:
                             }
                             
                             if mode == "standard" and chk_overwrite:
-                                if update_invoice_in_gsheet(invoice_record, sheet_obj):
-                                    st.success(f"✅ Invoice {inv_num} UPDATED!")
+                                # [CRITICAL] Pass existing_inv_num as the target to find and overwrite
+                                if update_invoice_in_gsheet(invoice_record, sheet_obj, existing_inv_num):
+                                    st.success(f"✅ Invoice {existing_inv_num} UPDATED to {inv_num}!")
                                     success = True
                             elif mode == "standard" and not is_duplicate:
                                 if save_invoice_to_gsheet(invoice_record, sheet_obj):
