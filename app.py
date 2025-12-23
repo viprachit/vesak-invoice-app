@@ -18,16 +18,27 @@ import numpy as np
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # ==========================================
-# 1. SETUP & ASSET GENERATION (OPTIMIZED)
+# 1. SETUP & ASSET GENERATION
 # ==========================================
 st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="🏥")
 
 LOGO_FILE = "logo.png"
 URL_CONFIG_FILE = "url_config.txt"
 
-# --- CONNECT TO GOOGLE SHEETS (CACHED FOR SPEED) ---
-# Using cache_resource because the connection object is a resource, not data
-@st.cache_resource(show_spinner=False)
+# --- CHECKBOX STATE INITIALIZATION ---
+if 'chk_print_dup' not in st.session_state: st.session_state.chk_print_dup = False
+if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = False
+
+# Callback functions to ensure mutual exclusivity
+def on_print_dup_change():
+    if st.session_state.chk_print_dup:
+        st.session_state.chk_overwrite = False
+
+def on_overwrite_change():
+    if st.session_state.chk_overwrite:
+        st.session_state.chk_print_dup = False
+
+# --- CONNECT TO GOOGLE SHEETS ---
 def get_google_sheet_client():
     """Connects to Google Sheets using the standard gspread library."""
     scopes = [
@@ -59,40 +70,32 @@ def get_google_sheet_client():
         st.error(f"Connection Error: {e}")
     return None
 
-# --- AUTO-DOWNLOAD ICONS (CACHED) ---
-@st.cache_resource(show_spinner=False)
-def setup_icons():
-    """Downloads icons once and caches the result so it doesn't run every time."""
-    
-    def download_and_save_icon(url, filename):
-        if not os.path.exists(filename):
-            try:
-                headers = {'User-Agent': 'Mozilla/5.0'}
-                response = requests.get(url, headers=headers)
-                if response.status_code == 200:
-                    img = Image.open(BytesIO(response.content)).convert("RGBA")
-                    if "logo" in filename:
-                        img.thumbnail((200, 200)) 
-                    else:
-                        img = img.resize((32, 32)) 
-                    img.save(filename, format="PNG")
-                    return True
-            except:
-                return False
-        return True
-
-    # URLs
-    IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
-    FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
-    LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2966/2966327.png" 
-
-    download_and_save_icon(IG_URL, "icon-ig.png")
-    download_and_save_icon(FB_URL, "icon-fb.png")
-    download_and_save_icon(LOGO_URL, "logo.png") 
+# --- AUTO-DOWNLOAD ICONS ---
+def download_and_save_icon(url, filename):
+    if not os.path.exists(filename):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                img = Image.open(BytesIO(response.content)).convert("RGBA")
+                if "logo" in filename:
+                    img.thumbnail((200, 200)) 
+                else:
+                    img = img.resize((32, 32)) 
+                img.save(filename, format="PNG")
+                return True
+        except:
+            return False
     return True
 
-# Initialize Icons
-setup_icons()
+# URLs
+IG_URL = "https://cdn-icons-png.flaticon.com/512/2111/2111463.png" 
+FB_URL = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png" 
+LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2966/2966327.png" 
+
+download_and_save_icon(IG_URL, "icon-ig.png")
+download_and_save_icon(FB_URL, "icon-fb.png")
+download_and_save_icon(LOGO_URL, "logo.png") 
 
 # ==========================================
 # 2. HELPER FUNCTIONS
@@ -161,16 +164,6 @@ def robust_file_downloader(url):
         raise Exception(f"Status Code: {response.status_code}")
     except Exception as e:
         raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
-
-# --- CACHED DATA LOADING ---
-# This is the biggest speed improvement. Caches the Excel file for 10 minutes.
-@st.cache_data(ttl=600) 
-def load_excel_from_url_cached(url):
-    try:
-        file_content = robust_file_downloader(url)
-        return pd.read_excel(file_content, sheet_name=None) # Read all sheets
-    except Exception as e:
-        return None
 
 # --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
@@ -256,11 +249,11 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         st.error(f"Error saving to Google Sheet: {e}")
         return False
 
-# --- IMPROVED ROBUST UPDATE FUNCTION (MATCHING BOTH ID & SERIAL) ---
+# --- IMPROVED ROBUST UPDATE FUNCTION ---
 def update_invoice_in_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
-        # 1. Get all data to perform a robust search in Python (safer than GSheet Find)
+        # Get all values from the sheet to ensure we match BOTH Serial No and Invoice No
         all_rows = sheet_obj.get_all_values()
         
         target_inv = str(data_dict["Invoice Number"]).strip()
@@ -268,26 +261,24 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
         
         row_idx_to_update = None
         
-        # 2. Iterate and match strictly
+        # Iterate through rows to find the exact match
         for idx, row in enumerate(all_rows):
-            # idx is 0-based
-            if len(row) < 2: continue # Skip broken rows
+            # idx is 0-based, row is a list of strings
+            if len(row) < 2: continue # Skip empty rows
             
-            # Column 0 is Serial, Column 1 is Invoice Number
+            # Assuming Column 1 (index 0) is Serial No, Column 2 (index 1) is Invoice Number
+            # We clean the sheet data to handle potential "123.0" vs "123" issues
             sheet_serial = str(row[0]).strip()
-            # Normalize float string "123.0" -> "123"
             try: sheet_serial = str(int(float(sheet_serial)))
             except: pass
             
             sheet_inv = str(row[1]).strip()
             
-            # STRICT CHECK: Both must match
             if sheet_serial == target_serial and sheet_inv == target_inv:
-                row_idx_to_update = idx + 1 # GSheet is 1-based
+                row_idx_to_update = idx + 1 # GSheet uses 1-based indexing
                 break
         
         if row_idx_to_update:
-            # Construct row payload
             row_values = [
                 data_dict.get("Serial No.", ""), data_dict.get("Invoice Number", ""), data_dict.get("Date", ""),
                 data_dict.get("Generated At", ""), data_dict.get("Customer Name", ""), data_dict.get("Age", ""),
@@ -298,7 +289,6 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
                 data_dict.get("Amount Paid", ""), data_dict.get("Details", ""), data_dict.get("Service Started", ""),
                 data_dict.get("Service Ended", "")
             ]
-            # Update specific range
             range_name = f"A{row_idx_to_update}:V{row_idx_to_update}"
             sheet_obj.update(range_name, [row_values])
             return True
@@ -518,228 +508,202 @@ with st.sidebar:
     else: st.error("❌ Not Connected to Google Sheets")
     data_source = st.radio("Load Confirmed Sheet via:", ["Upload File", "OneDrive Link"])
 
-df = None
+raw_file_obj = None
 if data_source == "Upload File":
     uploaded_file = st.sidebar.file_uploader("Upload Excel/CSV", type=['xlsx', 'csv'])
-    if uploaded_file:
-        try:
-            xl = pd.ExcelFile(uploaded_file)
-            sheet_names = xl.sheet_names
-            default_ix = sheet_names.index('Confirmed') if 'Confirmed' in sheet_names else 0
-            selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
-            df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
-        except Exception as e:
-            st.error(f"Error loading file: {e}")
-
+    if uploaded_file: raw_file_obj = uploaded_file
 elif data_source == "OneDrive Link":
     current_url = load_config_path(URL_CONFIG_FILE)
     url_input = st.sidebar.text_input("Paste OneDrive/Sharepoint Link:", value=current_url)
     if st.sidebar.button("Load from Link"):
         save_config_path(url_input, URL_CONFIG_FILE) 
         st.rerun()
-    
     if current_url:
-        # USE CACHED LOADER HERE
-        all_sheets_dict = load_excel_from_url_cached(current_url)
-        
-        if all_sheets_dict:
-            st.sidebar.success("✅ File Downloaded (Cached)")
-            sheet_names = list(all_sheets_dict.keys())
-            default_ix = sheet_names.index('Confirmed') if 'Confirmed' in sheet_names else 0
-            selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
-            df = all_sheets_dict[selected_sheet]
-        else:
-            st.sidebar.error("Link Error or File is empty.")
+        try: 
+            raw_file_obj = robust_file_downloader(current_url)
+            st.sidebar.success("✅ File Downloaded")
+        except Exception as e: 
+            st.sidebar.error(f"Link Error: {e}")
 
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs(["🧾 Generate Invoice", "🆕 Force New Invoice", "🛑 Manage Services"])
 
-if df is not None:
+if raw_file_obj:
+    df = None
     try:
-        df = normalize_columns(df, COLUMN_ALIASES)
-        missing = [k for k in ['Name', 'Mobile', 'Final Rate', 'Service Required', 'Unit Rate'] if k not in df.columns]
-        if missing: st.error(f"Missing columns: {missing}"); st.stop()
-        st.success("✅ Data Loaded")
-        df_history = get_history_data(sheet_obj)
+        if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
+        xl = pd.ExcelFile(raw_file_obj)
+        sheet_names = xl.sheet_names
+        default_ix = sheet_names.index('Confirmed') if 'Confirmed' in sheet_names else 0
+        selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
+        df = pd.read_excel(raw_file_obj, sheet_name=selected_sheet)
+    except Exception as e_excel:
+        st.error(f"❌ Excel Read Error: {e_excel}")
+        st.info("ℹ️ File seems corrupted or password protected.")
 
-        # === SHARED GENERATOR FUNCTION ===
-        def render_invoice_ui(mode="standard"):
-            # --- FILTER LOGIC ---
-            filter_col1, filter_col2 = st.columns([1, 2])
-            with filter_col1:
-                enable_date_filter = st.checkbox("Filter Customer List by Date", key=f"filt_chk_{mode}")
-            
-            selected_date_filter = None
-            unique_labels = []
-            
-            if enable_date_filter:
-                with filter_col2:
-                    # --- MODIFICATION: Range Logic (Selected Date AND Selected Date + 1 Day) ---
-                    selected_date_filter = st.date_input("Show customers for Selected Date & +1 Day:", value=datetime.date.today(), key=f"filt_date_{mode}")
-                    
-                    d_start = selected_date_filter 
-                    d_end = selected_date_filter + datetime.timedelta(days=1)
-            
-            # --- LOGIC TO POPULATE LIST BASED ON MODE ---
-            if mode == "force_new":
-                if not df_history.empty and 'Customer Name' in df_history.columns:
-                    hist_data = df_history.copy()
-                    if enable_date_filter and 'Date' in hist_data.columns:
-                            hist_data['DateObj'] = pd.to_datetime(hist_data['Date'], errors='coerce').dt.date
-                            # --- MODIFICATION: Apply Range Filter ---
-                            hist_data = hist_data[(hist_data['DateObj'] >= d_start) & (hist_data['DateObj'] <= d_end)]
+    if df is not None:
+        try:
+            df = normalize_columns(df, COLUMN_ALIASES)
+            missing = [k for k in ['Name', 'Mobile', 'Final Rate', 'Service Required', 'Unit Rate'] if k not in df.columns]
+            if missing: st.error(f"Missing columns: {missing}"); st.stop()
+            st.success("✅ Data Loaded")
+            df_history = get_history_data(sheet_obj)
+
+            # === SHARED GENERATOR FUNCTION ===
+            def render_invoice_ui(mode="standard"):
+                # --- FILTER LOGIC ---
+                filter_col1, filter_col2 = st.columns([1, 2])
+                with filter_col1:
+                    enable_date_filter = st.checkbox("Filter Customer List by Date", key=f"filt_chk_{mode}")
+                
+                selected_date_filter = None
+                unique_labels = []
+                
+                if enable_date_filter:
+                    with filter_col2:
+                        # --- MODIFICATION: Range Logic (Selected Date AND Selected Date + 1 Day) ---
+                        selected_date_filter = st.date_input("Show customers for Selected Date & +1 Day:", value=datetime.date.today(), key=f"filt_date_{mode}")
                         
-                    hist_names = hist_data['Customer Name'].unique()
-                    df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                    df_filtered = df[df['Name'].isin(hist_names)]
-                    unique_labels = [""] + list(df_filtered['Label'].unique())
-                else:
-                    unique_labels = [""]
-            else:
-                # Standard Mode
-                if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
-                        df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
-                        # --- MODIFICATION: Apply Range Filter ---
-                        filtered_hist = df_history[(df_history['DateObj'] >= d_start) & (df_history['DateObj'] <= d_end)]
-                        
-                        valid_names = filtered_hist['Customer Name'].unique()
-                        df_filtered = df[df['Name'].isin(valid_names)]
-                        if df_filtered.empty:
-                            st.warning(f"No customers found between {d_start} and {d_end}.")
-                            df_filtered = df 
-                        df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
-                        unique_labels = [""] + list(df_filtered['Label'].unique())
-                else:
-                    df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
-                    unique_labels = [""] + list(df['Label'].unique())
-
-            selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
-            
-            if not selected_label:
-                st.info("👈 Please select a customer to proceed.")
-                return
-
-            row = df[df['Label'] == selected_label].iloc[0]
-            
-            # Data Prep
-            c_serial_raw = row.get('Serial No.', '')
-            try: c_serial = str(int(float(c_serial_raw)))
-            except: c_serial = str(c_serial_raw)
-            c_plan = row.get('Service Required', '')
-            c_sub = row.get('Sub Service', '')
-            c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
-            c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
-            c_name = row.get('Name', '')
-            c_gender = row.get('Gender', '')
-            raw_age = row.get('Age', '')
-            try: c_age = str(int(float(raw_age))) if not pd.isna(raw_age) and raw_age != '' else ""
-            except: c_age = str(raw_age)
-            c_addr = row.get('Address', '')
-            c_location = row.get('Location', c_addr) 
-            c_mob = row.get('Mobile', '')
-            inc_def, exc_def = get_base_lists(c_plan, c_sub)
-            
-            st.divider()
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
-                inv_date = st.date_input("Date:", value=datetime.date.today(), key=f"date_{mode}")
-                fmt_date = format_date_with_suffix(inv_date)
-                default_qty = get_last_billing_qty(df_history, c_name, c_mob)
-                p_raw = str(row.get('Period', '')).strip()
-                shift_raw = str(row.get('Shift', '')).strip() 
+                        d_start = selected_date_filter 
+                        d_end = selected_date_filter + datetime.timedelta(days=1)
                 
-                # --- MODIFIED LABEL LOGIC ---
-                if "per visit" in shift_raw.lower():
-                    bill_label = "Visits"
-                elif "month" in p_raw.lower():
-                    bill_label = "Months"
-                elif "week" in p_raw.lower():
-                    bill_label = "Weeks"
-                else:
-                    bill_label = "Days"
-                
-                # --- FIXED: ADDED LABEL TO KEY TO FORCE RESET ---
-                billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
-                
-                existing_record = get_record_by_serial(df_history, c_serial)
-                is_duplicate = False
-                existing_inv_num = ""
-                default_inv_num = "" 
-
+                # --- LOGIC TO POPULATE LIST BASED ON MODE ---
                 if mode == "force_new":
-                    default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
-                    st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
-                else:
-                    # Calculate detection ID first
-                    potential_new_inv = get_next_invoice_number_gsheet(inv_date, df_history)
-                    
-                    # ROBUST DETECTION: Check if this invoice ID actually already exists in history
-                    # This prevents date format mismatches from hiding the duplicate warning
-                    if not df_history.empty and 'Invoice Number' in df_history.columns:
-                         if potential_new_inv in df_history['Invoice Number'].astype(str).values:
-                             is_duplicate = True
-                             existing_inv_num = potential_new_inv
-                             default_inv_num = existing_inv_num
-                             if mode == "standard": st.warning(f"⚠️ Invoice {existing_inv_num} already exists in records!")
-                         else:
-                             default_inv_num = potential_new_inv
+                    if not df_history.empty and 'Customer Name' in df_history.columns:
+                        hist_data = df_history.copy()
+                        if enable_date_filter and 'Date' in hist_data.columns:
+                             hist_data['DateObj'] = pd.to_datetime(hist_data['Date'], errors='coerce').dt.date
+                             # --- MODIFICATION: Apply Range Filter ---
+                             hist_data = hist_data[(hist_data['DateObj'] >= d_start) & (hist_data['DateObj'] <= d_end)]
+                        
+                        hist_names = hist_data['Customer Name'].unique()
+                        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+                        df_filtered = df[df['Name'].isin(hist_names)]
+                        unique_labels = [""] + list(df_filtered['Label'].unique())
                     else:
-                         default_inv_num = potential_new_inv
+                        unique_labels = [""]
+                else:
+                    # Standard Mode
+                    if enable_date_filter and not df_history.empty and 'Date' in df_history.columns and 'Customer Name' in df_history.columns:
+                          df_history['DateObj'] = pd.to_datetime(df_history['Date'], errors='coerce').dt.date
+                          # --- MODIFICATION: Apply Range Filter ---
+                          filtered_hist = df_history[(df_history['DateObj'] >= d_start) & (df_history['DateObj'] <= d_end)]
+                          
+                          valid_names = filtered_hist['Customer Name'].unique()
+                          df_filtered = df[df['Name'].isin(valid_names)]
+                          if df_filtered.empty:
+                              st.warning(f"No customers found between {d_start} and {d_end}.")
+                              df_filtered = df 
+                          df_filtered['Label'] = df_filtered['Name'].astype(str) + " (" + df_filtered['Mobile'].astype(str) + ")"
+                          unique_labels = [""] + list(df_filtered['Label'].unique())
+                    else:
+                        df['Label'] = df['Name'].astype(str) + " (" + df['Mobile'].astype(str) + ")"
+                        unique_labels = [""] + list(df['Label'].unique())
+
+                selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
                 
-                # --- NEW RADIO BUTTON LOGIC START ---
-                chk_print_dup = False
-                chk_overwrite = False
-                allow_generation = True # Default to allow, unless restricted by Duplicate Logic
+                if not selected_label:
+                    st.info("👈 Please select a customer to proceed.")
+                    return
+
+                row = df[df['Label'] == selected_label].iloc[0]
                 
-                if mode == "standard" and is_duplicate:
-                    action_selection = st.radio(
-                        "⚠️ Choose Action for Duplicate Invoice:",
-                        options=["⛔ Stop (Do nothing)", "📄 Generate Duplicate Invoice (PDF Only)", "💾 Overwrite Existing Entry"],
-                        index=0,
-                        key=f"dup_action_{selected_label}"
-                    )
+                # Data Prep
+                c_serial_raw = row.get('Serial No.', '')
+                try: c_serial = str(int(float(c_serial_raw)))
+                except: c_serial = str(c_serial_raw)
+                c_plan = row.get('Service Required', '')
+                c_sub = row.get('Sub Service', '')
+                c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
+                c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
+                c_name = row.get('Name', '')
+                c_gender = row.get('Gender', '')
+                raw_age = row.get('Age', '')
+                try: c_age = str(int(float(raw_age))) if not pd.isna(raw_age) and raw_age != '' else ""
+                except: c_age = str(raw_age)
+                c_addr = row.get('Address', '')
+                c_location = row.get('Location', c_addr) 
+                c_mob = row.get('Mobile', '')
+                inc_def, exc_def = get_base_lists(c_plan, c_sub)
+                
+                st.divider()
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
+                    inv_date = st.date_input("Date:", value=datetime.date.today(), key=f"date_{mode}")
+                    fmt_date = format_date_with_suffix(inv_date)
+                    default_qty = get_last_billing_qty(df_history, c_name, c_mob)
+                    p_raw = str(row.get('Period', '')).strip()
+                    shift_raw = str(row.get('Shift', '')).strip() 
                     
-                    if action_selection == "⛔ Stop (Do nothing)":
-                        allow_generation = False
-                        st.error("🛑 Generation prevented. Select an action above to proceed.")
-                    elif action_selection == "📄 Generate Duplicate Invoice (PDF Only)":
-                        chk_print_dup = True
-                        allow_generation = True
-                    elif action_selection == "💾 Overwrite Existing Entry":
-                        chk_overwrite = True
-                        allow_generation = True
-                # --- NEW RADIO BUTTON LOGIC END ---
+                    # --- MODIFIED LABEL LOGIC ---
+                    if "per visit" in shift_raw.lower():
+                        bill_label = "Visits"
+                    elif "month" in p_raw.lower():
+                        bill_label = "Months"
+                    elif "week" in p_raw.lower():
+                        bill_label = "Weeks"
+                    else:
+                        bill_label = "Days"
                     
-                inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}")
-                st.caption(f"Ref Date: {c_ref_date}")
+                    # --- FIXED: ADDED LABEL TO KEY TO FORCE RESET ---
+                    billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
+                    
+                    existing_record = get_record_by_serial(df_history, c_serial)
+                    is_duplicate = False
+                    existing_inv_num = ""
+                    default_inv_num = "" 
+
+                    if existing_record is not None:
+                        existing_inv_num = existing_record['Invoice Number']
+                        if existing_record['Date'] == fmt_date:
+                            is_duplicate = True
+                            if mode == "standard": st.warning(f"⚠️ Invoice already exists for today! (Inv: {existing_inv_num})")
+                        else:
+                            if mode == "standard":
+                                st.info(f"ℹ️ Previous Invoice Found: {existing_inv_num} (Re-billing)")
+                    
+                    if mode == "force_new":
+                        default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
+                        st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
+                    else:
+                        if is_duplicate: default_inv_num = existing_inv_num
+                        else: default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
+                    
+                    # Checkboxes
+                    chk_print_dup = False
+                    chk_overwrite = False
+                    if mode == "standard" and is_duplicate:
+                        col_dup1, col_dup2 = st.columns(2)
+                        with col_dup1: chk_print_dup = st.checkbox("Generate Duplicate Invoice (PDF Only)", key="chk_print_dup", on_change=on_print_dup_change)
+                        with col_dup2: chk_overwrite = st.checkbox("Overwrite existing entry (Update History)", key="chk_overwrite", on_change=on_overwrite_change)
+                        
+                    inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}")
+                    st.caption(f"Ref Date: {c_ref_date}")
+                    
+                with col2:
+                    generated_by_input = st.text_input("Invoice Generated By:", placeholder="", key=f"gen_by_{mode}")
+                    generated_by = generated_by_input if generated_by_input else "Vesak Patient Care"
+                    final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def, key=f"exc_{mode}")
+                    
+                st.write("**Included Services:**")
+                st.text(", ".join(inc_def))
+                final_notes = st.text_area("Notes:", value=c_notes_raw, key=f"notes_{mode}")
                 
-            with col2:
-                generated_by_input = st.text_input("Invoice Generated By:", placeholder="", key=f"gen_by_{mode}")
-                generated_by = generated_by_input if generated_by_input else "Vesak Patient Care"
-                final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def, key=f"exc_{mode}")
+                # HTML Constructions
+                desc_col_html = construct_description_html(row) 
+                amount_col_html = construct_amount_html(row, billing_qty)
                 
-            st.write("**Included Services:**")
-            st.text(", ".join(inc_def))
-            final_notes = st.text_area("Notes:", value=c_notes_raw, key=f"notes_{mode}")
-            
-            # HTML Constructions
-            desc_col_html = construct_description_html(row) 
-            amount_col_html = construct_amount_html(row, billing_qty)
-            
-            btn_label = "Generate & Save Invoice"
-            if mode == "force_new": btn_label = "⚠ Force Generate New Invoice"
-            elif chk_print_dup: btn_label = "Generate Duplicate Copy"
-            elif chk_overwrite: btn_label = "⚠ Update/Overwrite Invoice"
-            
-            # Only show button if allowed
-            if allow_generation:
+                btn_label = "Generate & Save Invoice"
+                if mode == "force_new": btn_label = "⚠ Force Generate New Invoice"
+                elif chk_print_dup: btn_label = "Generate Duplicate Copy"
+                elif chk_overwrite: btn_label = "⚠ Update/Overwrite Invoice"
+                
                 if st.button(btn_label, key=f"btn_{mode}"):
                     proceed = True
-                    # Double check logic (redundant but safe)
                     if mode == "standard" and not chk_print_dup and is_duplicate and not chk_overwrite:
-                        st.error("❌ Action Required: Please select 'Duplicate' or 'Overwrite' to proceed.")
+                        st.error("❌ Invoice exists! Select 'Generate Duplicate' or 'Overwrite'.")
                         proceed = False
                     
                     if proceed:
@@ -758,7 +722,7 @@ if df is not None:
                         
                         # FORCE VISIT IF DETECTED
                         if "per visit" in shift_raw.lower():
-                                unit_label_for_details = "Visit"
+                             unit_label_for_details = "Visit"
 
                         def get_plural_save(unit, qty):
                                 if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
