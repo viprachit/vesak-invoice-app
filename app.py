@@ -1119,7 +1119,7 @@ if df is not None:
                             pdf_bytes = convert_html_to_pdf(pdf_html_content)
                             if pdf_bytes:
                                 st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
-            except Exception as e:
+        except Exception as e:
                 st.error(f"Error: {e}")
 
     # === TAB 1: GENERATE INVOICE ===
@@ -1191,4 +1191,3 @@ if df is not None:
                         st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
-
