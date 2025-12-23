@@ -663,21 +663,25 @@ if df is not None:
                 existing_inv_num = ""
                 default_inv_num = "" 
 
-                if existing_record is not None:
-                    existing_inv_num = existing_record['Invoice Number']
-                    if existing_record['Date'] == fmt_date:
-                        is_duplicate = True
-                        if mode == "standard": st.warning(f"⚠️ Invoice already exists for today! (Inv: {existing_inv_num})")
-                    else:
-                        if mode == "standard":
-                            st.info(f"ℹ️ Previous Invoice Found: {existing_inv_num} (Re-billing)")
-                
                 if mode == "force_new":
                     default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
                     st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
                 else:
-                    if is_duplicate: default_inv_num = existing_inv_num
-                    else: default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
+                    # Calculate detection ID first
+                    potential_new_inv = get_next_invoice_number_gsheet(inv_date, df_history)
+                    
+                    # ROBUST DETECTION: Check if this invoice ID actually already exists in history
+                    # This prevents date format mismatches from hiding the duplicate warning
+                    if not df_history.empty and 'Invoice Number' in df_history.columns:
+                         if potential_new_inv in df_history['Invoice Number'].astype(str).values:
+                             is_duplicate = True
+                             existing_inv_num = potential_new_inv
+                             default_inv_num = existing_inv_num
+                             if mode == "standard": st.warning(f"⚠️ Invoice {existing_inv_num} already exists in records!")
+                         else:
+                             default_inv_num = potential_new_inv
+                    else:
+                         default_inv_num = potential_new_inv
                 
                 # --- NEW RADIO BUTTON LOGIC START ---
                 chk_print_dup = False
@@ -1125,7 +1129,7 @@ if df is not None:
                                 pdf_bytes = convert_html_to_pdf(pdf_html_content)
                                 if pdf_bytes:
                                     st.download_button(label="📄 Download PDF (Offline Engine)", data=pdf_bytes, file_name=f"Invoice_{c_name}.pdf", mime="application/pdf")
-    except Exception as e:
+        except Exception as e:
                 st.error(f"Error: {e}")
 
     # === TAB 1: GENERATE INVOICE ===
@@ -1197,4 +1201,3 @@ if df is not None:
                         st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
-
