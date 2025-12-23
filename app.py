@@ -567,6 +567,10 @@ if raw_file_obj:
 
             # === SHARED GENERATOR FUNCTION ===
             def render_invoice_ui(mode="standard"):
+                # Initialize checkboxes BEFORE any logic to avoid UnboundLocalError
+                chk_print_dup = False
+                chk_overwrite = False
+
                 # --- FILTER LOGIC ---
                 filter_col1, filter_col2 = st.columns([1, 2])
                 with filter_col1:
@@ -988,9 +992,12 @@ if raw_file_obj:
                             """
                             components.html(html_template, height=1000, scrolling=True)
                             
-                            # --- OFFLINE PDF ENGINE TEMPLATE ---
+                            # --- OFFLINE PDF ENGINE TEMPLATE (SIMPLE HTML) ---
+                            # --- FIX FOR PDF ENGINE VISITS DISPLAY ---
                             pdf_unit_label = unit_label_for_details
+                            
                             pdf_desc_html = f"<b>{clean_plan}</b><br/><br/>{str(row.get('Shift',''))}<br/><i>{str(row.get('Period',''))}</i>"
+                            
                             pdf_amount_html = f"""
                             <div align="right">
                                 {str(row.get('Shift',''))} / {str(row.get('Period',''))} = <b>Rs. {unit_rate_val:.0f}</b><br/>
@@ -1003,6 +1010,7 @@ if raw_file_obj:
                             
                             simple_inc_html = "".join([f"<li>{item}</li>" for item in inc_def])
                             simple_exc_html = "".join([f"<li>{item}</li>" for item in final_exc])
+                            
                             simple_notes = ""
                             if final_notes:
                                 simple_notes = f"""
@@ -1046,6 +1054,7 @@ if raw_file_obj:
                                         </td>
                                     </tr>
                                 </table>
+
                                 <table class="bill-to">
                                     <tr>
                                         <td width="50%">
@@ -1059,6 +1068,7 @@ if raw_file_obj:
                                         </td>
                                     </tr>
                                 </table>
+
                                 <table style="margin-bottom: 20px;">
                                     <thead>
                                         <tr>
@@ -1073,6 +1083,7 @@ if raw_file_obj:
                                         </tr>
                                     </tbody>
                                 </table>
+
                                 <table>
                                     <tr>
                                         <td width="50%" valign="top">
@@ -1085,10 +1096,13 @@ if raw_file_obj:
                                         </td>
                                     </tr>
                                 </table>
+
                                 {simple_notes}
+
                                 <div style="text-align: center; margin-top: 40px; color: #999; font-style: italic;">
                                     Thank you for choosing Vesak Care Foundation!
                                 </div>
+
                                 <div class="footer">
                                     <table width="100%">
                                         <tr>
@@ -1106,6 +1120,7 @@ if raw_file_obj:
                             </html>
                             """
                             
+                            # --- GENERATE PDF FROM SIMPLE HTML ---
                             if abs_logo_path:
                                 pdf_bytes = convert_html_to_pdf(pdf_html_content)
                                 if pdf_bytes:
@@ -1123,10 +1138,13 @@ if raw_file_obj:
         if df is not None:
              render_invoice_ui(mode="force_new")
 
-    # === TAB 3: MANAGE SERVICES ===
+    # === TAB 3: MANAGE SERVICES (UPDATED WITH DATE FILTER) ===
     with tab3:
         st.header("🛑 Manage Active Services")
+
+        # [OPTIMIZED] Calls cached data fetcher
         df_hist = get_history_data(sheet_obj)
+
         if not df_hist.empty:
             df_hist = df_hist.fillna("")
             if 'Service Ended' not in df_hist.columns:
@@ -1134,19 +1152,25 @@ if raw_file_obj:
             else:
                 active_services = df_hist[df_hist['Service Ended'].astype(str).str.strip() == ""]
                 
+                # --- NEW: DATE FILTER LOGIC ---
                 col_m1, col_m2 = st.columns([1, 2])
                 with col_m1:
                     use_filter = st.checkbox("Filter by Invoice Date", key="man_use_filter")
                 
                 if use_filter:
                     with col_m2:
+                        # --- MODIFICATION: Range Logic (Selected Date AND Selected Date + 1 Day) ---
                         filter_date_manage = st.date_input("Show services started on Selected Date & +1 Day:", value=datetime.date.today(), key="man_filter_date")
+                    
                         d_start_manage = filter_date_manage
                         d_end_manage = filter_date_manage + datetime.timedelta(days=1)
                     
                     if not active_services.empty and 'Date' in active_services.columns:
+                        # Convert string date to object for comparison (robust method)
                         active_services['DateObj'] = pd.to_datetime(active_services['Date'], errors='coerce').dt.date
+                        # --- MODIFICATION: Apply Range Filter ---
                         active_services = active_services[(active_services['DateObj'] >= d_start_manage) & (active_services['DateObj'] <= d_end_manage)]
+                # -----------------------------
 
                 if not active_services.empty:
                     active_services['Display'] = (
