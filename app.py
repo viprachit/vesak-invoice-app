@@ -25,19 +25,6 @@ st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="�
 LOGO_FILE = "logo.png"
 URL_CONFIG_FILE = "url_config.txt"
 
-# --- CHECKBOX STATE INITIALIZATION ---
-if 'chk_print_dup' not in st.session_state: st.session_state.chk_print_dup = False
-if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = False
-
-# Callback functions to ensure mutual exclusivity
-def on_print_dup_change():
-    if st.session_state.chk_print_dup:
-        st.session_state.chk_overwrite = False
-
-def on_overwrite_change():
-    if st.session_state.chk_overwrite:
-        st.session_state.chk_print_dup = False
-
 # --- CONNECT TO GOOGLE SHEETS (CACHED FOR SPEED) ---
 @st.cache_resource(show_spinner=False)
 def get_google_sheet_client():
@@ -692,13 +679,24 @@ if df is not None:
                     if is_duplicate: default_inv_num = existing_inv_num
                     else: default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
                 
-                # Checkboxes
+                # --- NEW RADIO BUTTON LOGIC START ---
                 chk_print_dup = False
                 chk_overwrite = False
+                
                 if mode == "standard" and is_duplicate:
-                    col_dup1, col_dup2 = st.columns(2)
-                    with col_dup1: chk_print_dup = st.checkbox("Generate Duplicate Invoice (PDF Only)", key="chk_print_dup", on_change=on_print_dup_change)
-                    with col_dup2: chk_overwrite = st.checkbox("Overwrite existing entry (Update History)", key="chk_overwrite", on_change=on_overwrite_change)
+                    duplicate_action = st.radio(
+                        "⚠️ Invoice Already Exists! Choose Action:",
+                        options=["Select Action", "Generate Duplicate (PDF Only)", "Overwrite Existing Entry"],
+                        index=0,
+                        horizontal=True,
+                        key=f"dup_action_{mode}"
+                    )
+                    
+                    if duplicate_action == "Generate Duplicate (PDF Only)":
+                        chk_print_dup = True
+                    elif duplicate_action == "Overwrite Existing Entry":
+                        chk_overwrite = True
+                # --- NEW RADIO BUTTON LOGIC END ---
                     
                 inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}")
                 st.caption(f"Ref Date: {c_ref_date}")
@@ -1191,4 +1189,3 @@ if df is not None:
                         st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
-
