@@ -26,6 +26,7 @@ LOGO_FILE = "logo.png"
 URL_CONFIG_FILE = "url_config.txt"
 
 # --- CONNECT TO GOOGLE SHEETS (CACHED FOR SPEED) ---
+# Using cache_resource because the connection object is a resource, not data
 @st.cache_resource(show_spinner=False)
 def get_google_sheet_client():
     """Connects to Google Sheets using the standard gspread library."""
@@ -162,7 +163,8 @@ def robust_file_downloader(url):
         raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
 # --- CACHED DATA LOADING ---
-@st.cache_data(ttl=600) # Caches the excel file for 10 minutes to prevent re-downloading on every click
+# This is the biggest speed improvement. Caches the Excel file for 10 minutes.
+@st.cache_data(ttl=600) 
 def load_excel_from_url_cached(url):
     try:
         file_content = robust_file_downloader(url)
@@ -254,11 +256,11 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         st.error(f"Error saving to Google Sheet: {e}")
         return False
 
-# --- IMPROVED ROBUST UPDATE FUNCTION ---
+# --- IMPROVED ROBUST UPDATE FUNCTION (MATCHING BOTH ID & SERIAL) ---
 def update_invoice_in_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
-        # Get all values from the sheet to ensure we match BOTH Serial No and Invoice No
+        # 1. Get all data to perform a robust search in Python (safer than GSheet Find)
         all_rows = sheet_obj.get_all_values()
         
         target_inv = str(data_dict["Invoice Number"]).strip()
@@ -266,24 +268,26 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
         
         row_idx_to_update = None
         
-        # Iterate through rows to find the exact match
+        # 2. Iterate and match strictly
         for idx, row in enumerate(all_rows):
-            # idx is 0-based, row is a list of strings
-            if len(row) < 2: continue # Skip empty rows
+            # idx is 0-based
+            if len(row) < 2: continue # Skip broken rows
             
-            # Assuming Column 1 (index 0) is Serial No, Column 2 (index 1) is Invoice Number
-            # We clean the sheet data to handle potential "123.0" vs "123" issues
+            # Column 0 is Serial, Column 1 is Invoice Number
             sheet_serial = str(row[0]).strip()
+            # Normalize float string "123.0" -> "123"
             try: sheet_serial = str(int(float(sheet_serial)))
             except: pass
             
             sheet_inv = str(row[1]).strip()
             
+            # STRICT CHECK: Both must match
             if sheet_serial == target_serial and sheet_inv == target_inv:
-                row_idx_to_update = idx + 1 # GSheet uses 1-based indexing
+                row_idx_to_update = idx + 1 # GSheet is 1-based
                 break
         
         if row_idx_to_update:
+            # Construct row payload
             row_values = [
                 data_dict.get("Serial No.", ""), data_dict.get("Invoice Number", ""), data_dict.get("Date", ""),
                 data_dict.get("Generated At", ""), data_dict.get("Customer Name", ""), data_dict.get("Age", ""),
@@ -294,6 +298,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
                 data_dict.get("Amount Paid", ""), data_dict.get("Details", ""), data_dict.get("Service Started", ""),
                 data_dict.get("Service Ended", "")
             ]
+            # Update specific range
             range_name = f"A{row_idx_to_update}:V{row_idx_to_update}"
             sheet_obj.update(range_name, [row_values])
             return True
