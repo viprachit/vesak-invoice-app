@@ -38,10 +38,9 @@ def on_overwrite_change():
     if st.session_state.chk_overwrite:
         st.session_state.chk_print_dup = False
 
-# --- CONNECT TO GOOGLE SHEETS (OPTIMIZED: CACHED) ---
-@st.cache_resource
+# --- CONNECT TO GOOGLE SHEETS ---
 def get_google_sheet_client():
-    """Connects to Google Sheets. Cached to prevent reconnecting on every run."""
+    """Connects to Google Sheets using the standard gspread library."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
@@ -71,8 +70,7 @@ def get_google_sheet_client():
         st.error(f"Connection Error: {e}")
     return None
 
-# --- AUTO-DOWNLOAD ICONS (OPTIMIZED: CACHED) ---
-@st.cache_data
+# --- AUTO-DOWNLOAD ICONS ---
 def download_and_save_icon(url, filename):
     if not os.path.exists(filename):
         try:
@@ -139,61 +137,48 @@ def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
-# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED (Cached to prevent re-downloading on every click)
-@st.cache_data(ttl=3600) # Cache file for 1 hour to speed up UI
+# [ROBUST DOWNLOADER V4]
 def robust_file_downloader(url):
-    """
-    Downloads file using a session to persist cookies through redirects.
-    This fixes 403 errors on public OneDrive links.
-    """
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': 'https://www.google.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
     })
+    target_url = url
+    if "1drv.ms" in url:
+        try:
+            r = session.head(url, allow_redirects=True)
+            target_url = r.url
+        except: pass
 
-    download_url = url
-    
-    # 1. Clean the URL (Remove existing parameters)
-    if "?" in url:
-        base_url = url.split("?")[0]
+    if "?" in target_url:
+        base_url = target_url.split("?")[0]
+        final_url = f"{base_url}?download=1"
     else:
-        base_url = url
-
-    # 2. Append download command
-    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
-        download_url = base_url + "?download=1"
+        final_url = f"{target_url}?download=1"
     
     try:
-        # Attempt download
-        response = session.get(download_url, verify=False, allow_redirects=True)
-        
-        # Check if successful
+        response = session.get(final_url, verify=False, allow_redirects=True)
         if response.status_code == 200:
-            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
-            if 'text/html' in content_type and len(response.content) < 5000:
-                # If we got a small HTML page, it might be a login redirect.
-                # Try the original URL without modification as a last resort
+            if 'text/html' in content_type:
                 response = session.get(url, verify=False, allow_redirects=True)
-            
-            # Return raw bytes instead of BytesIO object for Caching to work better
-            return response.content
-            
+                if response.status_code == 200:
+                    return BytesIO(response.content)
+            else:
+                return BytesIO(response.content)
         raise Exception(f"Status Code: {response.status_code}")
-        
     except Exception as e:
-        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
+        raise Exception(f"Download failed: {e}. Check link permissions.")
 
-# --- GOOGLE SHEETS DATABASE FUNCTIONS (OPTIMIZED) ---
+# --- GOOGLE SHEETS DATABASE FUNCTIONS ---
 
-@st.cache_data(ttl=60) # Cache history for 60 seconds to prevent slow reads
-def get_history_data(_sheet_obj):
-    if _sheet_obj is None: return pd.DataFrame()
+def get_history_data(sheet_obj):
+    if sheet_obj is None: return pd.DataFrame()
     try:
-        data = _sheet_obj.get_all_records()
+        data = sheet_obj.get_all_records()
         return pd.DataFrame(data)
     except Exception as e:
         return pd.DataFrame()
@@ -569,8 +554,7 @@ elif data_source == "OneDrive Link":
         
     if current_url:
         try: 
-            raw_content = robust_file_downloader(current_url)
-            raw_file_obj = BytesIO(raw_content) # Convert bytes to file-like object for pandas
+            raw_file_obj = robust_file_downloader(current_url)
             st.sidebar.success("✅ File Downloaded")
         except Exception as e: 
             st.sidebar.error(f"Link Error: {e}")
@@ -829,17 +813,14 @@ if raw_file_obj:
                             if mode == "standard" and chk_overwrite:
                                 if update_invoice_in_gsheet(invoice_record, sheet_obj):
                                     st.success(f"✅ Invoice {inv_num} UPDATED!")
-                                    st.cache_data.clear() # Clear cache to show update immediately
                                     success = True
                             elif mode == "standard" and not is_duplicate:
                                 if save_invoice_to_gsheet(invoice_record, sheet_obj):
                                     st.success(f"✅ Invoice {inv_num} SAVED!")
-                                    st.cache_data.clear()
                                     success = True
                             elif mode == "force_new":
                                 if save_invoice_to_gsheet(invoice_record, sheet_obj):
                                     st.success(f"✅ New Invoice {inv_num} CREATED!")
-                                    st.cache_data.clear()
                                     success = True
                         else:
                             st.info("ℹ️ Generating Duplicate Copy (No DB Change).")
