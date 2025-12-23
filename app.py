@@ -255,9 +255,7 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         st.error(f"Error saving to Google Sheet: {e}")
         return False
 
-# --- IMPROVED ROBUST UPDATE FUNCTION (DOUBLE LOCK) ---
-# [CRITICAL LOGIC FIX] Uses BOTH Serial No. and Original Invoice No.
-# DOES NOT CHECK DATE. This allows date changes.
+# --- IMPROVED ROBUST UPDATE FUNCTION (DOUBLE LOCK - NO DATE CHECK) ---
 def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
     if sheet_obj is None: return False
     try:
@@ -279,6 +277,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
             try: sheet_serial = str(int(float(sheet_serial_raw)))
             except: sheet_serial = sheet_serial_raw
             
+            # Column 2 is Invoice Number (Index 1)
             sheet_inv = str(row[1]).strip()
             
             # [LOGIC] Match BOTH Serial AND Old Invoice Number
@@ -662,29 +661,34 @@ if raw_file_obj:
                     billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
                     
                     existing_record = get_record_by_serial(df_history, c_serial)
-                    is_duplicate = False
+                    is_duplicate = False # Only used for Warning text now
                     existing_inv_num = ""
                     default_inv_num = "" 
 
                     if existing_record is not None:
                         existing_inv_num = existing_record['Invoice Number']
+                        
+                        # [CHANGED LOGIC] We now warn based on date, but allow overwrite regardless
                         if existing_record['Date'] == fmt_date:
                             is_duplicate = True
                             if mode == "standard": st.warning(f"⚠️ Invoice already exists for today! (Inv: {existing_inv_num})")
                         else:
                             if mode == "standard":
-                                st.info(f"ℹ️ Previous Invoice Found: {existing_inv_num} (Re-billing)")
+                                st.info(f"ℹ️ Previous Invoice Found: {existing_inv_num} (Re-billing or Edit)")
                     
                     if mode == "force_new":
                         default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
                         st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
                     else:
-                        if is_duplicate: default_inv_num = existing_inv_num
+                        # [CHANGED] Default to Existing Invoice Number if found (so it's easier to overwrite)
+                        if existing_record is not None: default_inv_num = existing_inv_num
                         else: default_inv_num = get_next_invoice_number_gsheet(inv_date, df_history)
                     
                     chk_print_dup = False
                     chk_overwrite = False
-                    if mode == "standard" and is_duplicate:
+                    
+                    # [CRITICAL LOGIC CHANGE] Show checkboxes if ANY record exists for this client
+                    if mode == "standard" and existing_record is not None:
                         col_dup1, col_dup2 = st.columns(2)
                         with col_dup1: chk_print_dup = st.checkbox("Generate Duplicate Invoice (PDF Only)", key="chk_print_dup", on_change=on_print_dup_change)
                         with col_dup2: chk_overwrite = st.checkbox("Overwrite existing entry (Update History)", key="chk_overwrite", on_change=on_overwrite_change)
@@ -711,8 +715,9 @@ if raw_file_obj:
                 
                 if st.button(btn_label, key=f"btn_{mode}"):
                     proceed = True
-                    if mode == "standard" and not chk_print_dup and is_duplicate and not chk_overwrite:
-                        st.error("❌ Invoice exists! Select 'Generate Duplicate' or 'Overwrite'.")
+                    # [CHANGED] Check logic: If duplicate date exists, user MUST choose an option
+                    if mode == "standard" and is_duplicate and not chk_print_dup and not chk_overwrite:
+                        st.error("❌ Invoice exists for this date! Select 'Generate Duplicate' or 'Overwrite'.")
                         proceed = False
                     
                     if proceed:
