@@ -162,41 +162,53 @@ def get_history_data(_sheet_obj):
     except Exception as e:
         return pd.DataFrame()
 
+# --- STEP 5: UPDATED INVOICE NUMBER FORMAT (YYYYMM-XXX) ---
 def get_next_invoice_number_gsheet(date_obj, df_hist):
-    date_str = date_obj.strftime('%Y%m%d')
+    # Format: YYYYMM-001 (e.g., 202501-001)
+    prefix_str = date_obj.strftime('%Y%m') + "-"
     next_seq = 1
+    
     if not df_hist.empty and 'Invoice Number' in df_hist.columns:
         df_hist['Invoice Number'] = df_hist['Invoice Number'].astype(str)
-        todays_inv = df_hist[df_hist['Invoice Number'].str.startswith(date_str)]
-        if not todays_inv.empty:
-            last_inv = todays_inv['Invoice Number'].iloc[-1]
+        # Filter for invoices starting with YYYYMM-
+        month_inv = df_hist[df_hist['Invoice Number'].str.startswith(prefix_str)]
+        
+        if not month_inv.empty:
+            # Sort to find the true last one
             try:
-                parts = last_inv.split('-')
-                if len(parts) > 1:
-                    last_seq = int(parts[-1])
-                    next_seq = last_seq + 1
+                month_inv['Seq'] = month_inv['Invoice Number'].apply(lambda x: int(x.split('-')[-1]) if '-' in x else 0)
+                month_inv = month_inv.sort_values('Seq')
+                last_seq = month_inv['Seq'].iloc[-1]
+                next_seq = last_seq + 1
             except: pass
-    return f"{date_str}-{next_seq:03d}"
+            
+    return f"{prefix_str}{next_seq:03d}"
 
-# --- STEP 2: SEQUENTIAL SERIAL NUMBER FUNCTION ---
-def get_next_serial_number_gsheet(df_hist):
-    """Calculates the next Sequential Serial No based on History Sheet Column A"""
-    if df_hist.empty or 'Serial No.' not in df_hist.columns:
-        return 1
+# --- STEP 4: UID GENERATION (0001, 0002...) ---
+def get_next_uid_gsheet(df_hist):
+    """Calculates the next sequential UID based on History Sheet Column A"""
+    if df_hist.empty or 'UID' not in df_hist.columns:
+        return "0001"
     try:
-        # Convert to numeric, coercing errors to NaN, then fill with 0
-        serials = pd.to_numeric(df_hist['Serial No.'], errors='coerce').fillna(0)
-        max_serial = serials.max()
-        return int(max_serial) + 1
+        # Convert to numeric, coercing errors to NaN
+        # Check if 'UID' column has data
+        uids = pd.to_numeric(df_hist['UID'], errors='coerce').fillna(0)
+        if len(uids) == 0: return "0001"
+        max_uid = uids.max()
+        next_val = int(max_uid) + 1
+        return f"{next_val:04d}"
     except:
-        return 1
+        return "0001"
 
-# --- UPDATED: GET RECORD BY REF NO & SERIAL NO (Active Check) ---
+# --- UPDATED: GET RECORD BY REF NO (Checking Service Ended in Col X) ---
 def get_active_invoice_record(df_hist, ref_no):
     """Checks GS History for an ACTIVE invoice (Service Ended is Empty) for the given Ref. No."""
     if df_hist.empty: return None
-    # Ensure columns exist
-    if 'Ref. No.' not in df_hist.columns or 'Service Ended' not in df_hist.columns: return None
+    
+    # Ensure columns exist. 
+    # Note: In a DF from get_all_records, keys are headers. 
+    # Assuming 'Ref. No.' and 'Service Ended' headers exist.
+    if 'Ref. No.' not in df_hist.columns: return None
     
     # Normalize
     df_hist['Ref_Clean'] = df_hist['Ref. No.'].astype(str).str.strip()
@@ -207,17 +219,20 @@ def get_active_invoice_record(df_hist, ref_no):
     if client_rows.empty: return None
     
     # Check for blank 'Service Ended'
-    # Treat NaN or empty string as blank
-    client_rows['Service_Ended_Clean'] = client_rows['Service Ended'].fillna('').astype(str).str.strip()
-    active_rows = client_rows[client_rows['Service_Ended_Clean'] == '']
-    
-    if not active_rows.empty:
-        # Return the latest active row
-        return active_rows.iloc[-1]
+    if 'Service Ended' in client_rows.columns:
+        client_rows['Service_Ended_Clean'] = client_rows['Service Ended'].fillna('').astype(str).str.strip()
+        active_rows = client_rows[client_rows['Service_Ended_Clean'] == '']
+        
+        if not active_rows.empty:
+            # Return the latest active row
+            return active_rows.iloc[-1]
     return None
 
 def check_if_service_ended_history(df_hist, ref_no):
-    """Returns True if the LATEST record for this Ref No has a Service Ended timestamp."""
+    """
+    Returns True if the LATEST record for this Ref No has a Service Ended timestamp.
+    Used for filtering Tab 1 (exclude) and Tab 2 (include).
+    """
     if df_hist.empty: return False
     if 'Ref. No.' not in df_hist.columns: return False
     
@@ -225,11 +240,15 @@ def check_if_service_ended_history(df_hist, ref_no):
     target_ref = str(ref_no).strip()
     
     client_rows = df_hist[df_hist['Ref_Clean'] == target_ref]
-    if client_rows.empty: return False # No history = Not ended
+    if client_rows.empty: return False # No history = Not ended (New)
     
     # Check the very last entry
     last_row = client_rows.iloc[-1]
-    svc_end = str(last_row.get('Service Ended', '')).strip()
+    
+    svc_end = ""
+    if 'Service Ended' in last_row:
+        svc_end = str(last_row['Service Ended']).strip()
+        
     return svc_end != ""
 
 def get_last_billing_qty(df_hist, customer_name, mobile):
@@ -245,14 +264,21 @@ def get_last_billing_qty(df_hist, customer_name, mobile):
         if match: return int(match.group(1))
     return 1
 
-# --- UPDATED: SAVE TO GSHEET (New Column Structure) ---
+# --- STEP 1 & 3: SAVE TO GSHEET (New Column Structure) ---
 def save_invoice_to_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
-        # New Column A is Serial No., Col B is Ref. No.
+        # Col A = UID (Index 0)
+        # Col B = Serial No. (Index 1)
+        # Col C = Ref. No. (Index 2)
+        # Col D = Invoice Number (Index 3)
+        # ...
+        # Col X = Service Ended (Index 23)
+        
         row_values = [
+            data_dict.get("UID", ""),
             data_dict.get("Serial No.", ""), 
-            data_dict.get("Ref. No.", ""), # Inserted Ref No (Old Serial)
+            data_dict.get("Ref. No.", ""), 
             data_dict.get("Invoice Number", ""), 
             data_dict.get("Date", ""),
             data_dict.get("Generated At", ""), 
@@ -273,7 +299,7 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
             data_dict.get("Amount Paid", ""), 
             data_dict.get("Details", ""), 
             data_dict.get("Service Started", ""),
-            data_dict.get("Service Ended", "") # Now at Index 22 (Column W)
+            data_dict.get("Service Ended", "") 
         ]
         sheet_obj.append_row(row_values)
         get_history_data.clear()
@@ -287,25 +313,31 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
     if sheet_obj is None: return False
     try:
         all_rows = sheet_obj.get_all_values()
-        # We match based on Invoice Number primarily as per Step 5 "Match Invoice No"
-        # And ensure Ref No matches for safety
         target_inv_search = str(original_inv_to_find).strip()
         target_ref = str(data_dict.get("Ref. No.", "")).strip()
         
         row_idx_to_update = None
+        current_uid = "" # Preserve existing UID
+        
         for idx, row in enumerate(all_rows):
-            if len(row) < 3: continue 
-            # Col A=Serial, B=Ref, C=Invoice
-            sheet_ref = str(row[1]).strip()
-            sheet_inv = str(row[2]).strip()
+            if len(row) < 4: continue 
+            # Col A=UID(0), B=Serial(1), C=Ref(2), D=Invoice(3)
+            sheet_ref = str(row[2]).strip()
+            sheet_inv = str(row[3]).strip()
             
             # Match Ref No and Invoice No
             if sheet_inv == target_inv_search and sheet_ref == target_ref:
                 row_idx_to_update = idx + 1 
+                current_uid = str(row[0]).strip() # Get existing UID from Col A
                 break
         
         if row_idx_to_update:
+            # If we didn't get a UID (rare), use the one passed or generate one? 
+            # Ideally preserve.
+            uid_to_save = current_uid if current_uid else data_dict.get("UID", "")
+
             row_values = [
+                uid_to_save, 
                 data_dict.get("Serial No.", ""), 
                 data_dict.get("Ref. No.", ""),
                 data_dict.get("Invoice Number", ""), 
@@ -330,8 +362,8 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
                 data_dict.get("Service Started", ""),
                 data_dict.get("Service Ended", "")
             ]
-            # Column W is the 23rd column
-            range_name = f"A{row_idx_to_update}:W{row_idx_to_update}"
+            # Column X is the 24th column. Range A:X
+            range_name = f"A{row_idx_to_update}:X{row_idx_to_update}"
             sheet_obj.update(range_name, [row_values])
             get_history_data.clear()
             return True
@@ -342,21 +374,21 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
         st.error(f"Error updating Google Sheet: {e}")
         return False
 
-# --- UPDATED: MARK SERVICE ENDED (Column Shift) ---
+# --- UPDATED: MARK SERVICE ENDED (Column Shift to X) ---
 def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
-        # Search for Invoice Number (Column C / Index 3)
+        # Search for Invoice Number (Column D / Index 4)
         try:
-             cell = sheet_obj.find(str(invoice_number).strip(), in_column=3)
+             cell = sheet_obj.find(str(invoice_number).strip(), in_column=4)
         except:
-             # Fallback search if col specific fails
+             # Fallback search
              cell = sheet_obj.find(str(invoice_number).strip())
              
         if cell:
             end_time = end_date.strftime("%Y-%m-%d") + " " + datetime.datetime.now().strftime("%H:%M:%S")
-            # Service Ended is now Column W (23rd letter)
-            range_name = f"W{cell.row}"
+            # Service Ended is now Column X (24th letter)
+            range_name = f"X{cell.row}"
             sheet_obj.update(range_name, [[end_time]])
             get_history_data.clear()
             return True, end_time
@@ -385,8 +417,8 @@ PLAN_DISPLAY_NAMES = {
 }
 # --- UPDATED COLUMN ALIASES ---
 COLUMN_ALIASES = {
-    'Serial No.': ['Serial No.', 'serial no', 'sr no', 'sr. no.', 'id'], # New Column A
-    'Ref. No.': ['Ref. No.', 'ref no', 'ref. no.', 'reference no', 'reference number'], # Old Serial No (Column B)
+    'Serial No.': ['Serial No.', 'serial no', 'sr no', 'sr. no.', 'id'], # New Column A (Input)
+    'Ref. No.': ['Ref. No.', 'ref no', 'ref. no.', 'reference no', 'reference number'], # New Column B (Input)
     'Name': ['Name', 'name', 'patient name', 'client name'],
     'Mobile': ['Mobile', 'mobile', 'phone', 'contact'],
     'Location': ['Location', 'location', 'city'], 
@@ -599,7 +631,7 @@ if raw_file_obj:
             def render_invoice_ui(mode="standard"):
                 chk_overwrite = False
                 
-                # --- FILTER LIST LOGIC (Steps 3 & 4) ---
+                # --- FILTER LIST LOGIC (Steps 2 & 3) ---
                 # "Generate Invoice" (Standard): Show only clients who are NEW or ACTIVE (Service Ended is blank).
                 # "Force New Invoice": Show only clients who have ENDED Service (Service Ended has data).
                 
@@ -655,8 +687,8 @@ if raw_file_obj:
                 row = df_filtered_view[df_filtered_view['Label'] == selected_label].iloc[0]
                 
                 # Retrieve Data
-                c_serial_input = str(row.get('Serial No.', '')).strip() # Input File Serial (Used for nothing in history now)
-                c_ref_no = str(row.get('Ref. No.', '')).strip() # Old Serial/Ref ID (Static)
+                c_serial = str(row.get('Serial No.', '')).strip() # Col B in GS (Static from Input)
+                c_ref_no = str(row.get('Ref. No.', '')).strip() # Col C in GS (Static from Input)
                 c_plan = row.get('Service Required', '')
                 c_sub = row.get('Sub Service', '')
                 c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
@@ -679,7 +711,6 @@ if raw_file_obj:
                     st.write(f"**Ref No:** {c_ref_no}")
                     
                     # --- STEP 1: Date Reset Logic ---
-                    # Using key with selected_label forces a new widget (and default value) on customer change
                     inv_date = st.date_input("Date:", value=datetime.date.today(), key=f"date_{mode}_{selected_label}")
                     fmt_date = format_date_with_suffix(inv_date)
                     default_qty = get_last_billing_qty(df_history, c_name, c_mob)
@@ -693,51 +724,47 @@ if raw_file_obj:
                     
                     billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
                     
-                    # --- CRITICAL LOGIC STEP 5 & STEP 2 (Sequential) ---
-                    # Check if client has ACTIVE invoice (Service Ended is Empty)
+                    # --- CRITICAL LOGIC STEP 5 (Invoice No) & STEP 4 (UID) ---
                     active_record = get_active_invoice_record(df_history, c_ref_no)
                     
                     existing_inv_num = ""
                     default_inv_num = "" 
                     conflict_exists = False
                     
-                    # Calculate next sequential numbers (Fresh Calculation)
-                    next_sequential_inv = get_next_invoice_number_gsheet(inv_date, df_history)
-                    next_serial_hist = get_next_serial_number_gsheet(df_history) # Step 2: New Serial for History
+                    # Calculate next numbers
+                    next_sequential_inv = get_next_invoice_number_gsheet(inv_date, df_history) # Step 5
+                    next_uid = get_next_uid_gsheet(df_history) # Step 4
 
-                    final_serial_no = "" # Placeholder
+                    final_uid = ""
 
                     if mode == "standard":
                         if active_record is not None:
-                            # STEP 5.a: Active Service Exists -> Block Generation, Enable Overwrite
+                            # Active Service Exists -> Block Generation, Enable Overwrite
                             existing_inv_num = str(active_record['Invoice Number'])
                             conflict_exists = True
                             st.warning(f"⚠️ Active Invoice Found: {existing_inv_num}. You must Overwrite to update.")
                             default_inv_num = existing_inv_num
-                            # Step 2 Logic: If overwrite, keep existing Serial No
-                            final_serial_no = str(active_record.get('Serial No.', ''))
+                            # Use existing UID for overwrite
+                            final_uid = str(active_record.get('UID', ''))
                         else:
-                            # STEP 5.b: No Active Service -> New Invoice
+                            # No Active Service -> New Invoice
                             st.info(f"ℹ️ Generating New Invoice No: {next_sequential_inv}")
                             default_inv_num = next_sequential_inv
-                            # Step 2 Logic: New Invoice = New Serial No
-                            final_serial_no = str(next_serial_hist)
+                            # New UID
+                            final_uid = str(next_uid)
                     elif mode == "force_new":
                         # Always new for force new
                         default_inv_num = next_sequential_inv
                         st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
-                        # Step 2 Logic: Force New = New Serial No
-                        final_serial_no = str(next_serial_hist)
+                        # New UID
+                        final_uid = str(next_uid)
 
                     if mode == "standard" and conflict_exists:
                              chk_overwrite = st.checkbox("Overwrite Existing Entry", key=f"chk_over_{mode}")
                     
-                    # STEP 6: Invoice No Editable ONLY if Overwrite ticked
                     is_disabled = True
                     if mode == "standard" and chk_overwrite:
                         is_disabled = False # Editable
-                    
-                    # For new invoice (conflict_exists is False), it remains Disabled (Read-Only) as per Step 6
                     
                     inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}_{inv_date}_{chk_overwrite}_{default_inv_num}", disabled=is_disabled)
                     st.caption(f"Ref Date: {c_ref_date}")
@@ -758,7 +785,6 @@ if raw_file_obj:
                 if mode == "force_new": btn_label = "⚠ Force Generate New Invoice"
                 elif chk_overwrite: btn_label = "⚠ Update/Overwrite Invoice"
                 
-                # Block Generate button if Conflict Exists and Overwrite NOT ticked
                 btn_disabled = False
                 if mode == "standard" and conflict_exists and not chk_overwrite:
                     btn_disabled = True
@@ -797,9 +823,12 @@ if raw_file_obj:
                         period_val = str(row.get('Period', ''))
                         generated_at_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+                        # --- STEP 3: DATA MAPPING ---
+                        # UID (Col A), Serial (Col B - Static), Ref (Col C - Static), Invoice (Col D - Dynamic)
                         invoice_record = {
-                            "Serial No.": str(final_serial_no), # Step 2: Uses History Sequential
-                            "Ref. No.": str(c_ref_no),   # Old Serial / Static Ref
+                            "UID": str(final_uid),
+                            "Serial No.": str(c_serial), 
+                            "Ref. No.": str(c_ref_no),
                             "Invoice Number": str(inv_num), "Date": str(fmt_date),
                             "Generated At": generated_at_ts, "Customer Name": str(c_name), "Age": str(c_age),
                             "Gender": str(c_gender), "Location": str(c_location), "Address": str(c_addr),
@@ -814,14 +843,13 @@ if raw_file_obj:
                             if update_invoice_in_gsheet(invoice_record, sheet_obj, existing_inv_num):
                                 st.success(f"✅ Invoice {existing_inv_num} UPDATED to {inv_num}!")
                                 success = True
-                                st.rerun() # Refresh to update sequence numbers
+                                st.rerun() 
                         elif mode == "standard":
                             if save_invoice_to_gsheet(invoice_record, sheet_obj):
                                 st.success(f"✅ Invoice {inv_num} SAVED!")
                                 success = True
                                 st.rerun()
                         elif mode == "force_new":
-                            # End previous service if active
                             if active_record is not None:
                                 prev_inv = active_record['Invoice Number']
                                 success_end, end_ts = mark_service_ended(sheet_obj, prev_inv, inv_date)
@@ -833,7 +861,6 @@ if raw_file_obj:
                                 st.rerun()
 
                         if success:
-                            # PDF Generation HTML (Unchanged structure)
                             inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
                             exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
                             notes_section = ""
@@ -877,14 +904,6 @@ if raw_file_obj:
                             </html>
                             """
                             components.html(html_template, height=1000, scrolling=True)
-
-            # === TAB 1: GENERATE INVOICE ===
-            with tab1:
-                render_invoice_ui(mode="standard")
-
-            # === TAB 2: FORCE NEW INVOICE ===
-            with tab2:
-                render_invoice_ui(mode="force_new")
 
             # === TAB 3: DUPLICATE INVOICE (REPRINT) ===
             with tab3:
@@ -936,13 +955,9 @@ if raw_file_obj:
                             </div>
                             """
 
-                            # --- FIX FOR NAME ERROR: Generate Excluded Lists ---
-                            # Assuming 'All' subservices as history might not have subservice details
                             inc_rep_list, exc_rep_list = get_base_lists(c_plan_rep, "All")
-                            
                             inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_rep_list])
                             exc_html_rep = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_rep_list])
-                            # ---------------------------------------------------
                             
                             notes_raw_rep = str(row_data.get('Notes / Remarks', ''))
                             notes_sec_rep = ""
@@ -989,6 +1004,8 @@ if raw_file_obj:
 
                 if not df_hist.empty:
                     df_hist = df_hist.fillna("")
+                    # Check for 'Service Ended' column. Now usually at end (Col X/23)
+                    # Just check by name
                     if 'Service Ended' not in df_hist.columns:
                         st.warning("⚠️ 'Service Ended' column not found in History sheet.")
                     else:
