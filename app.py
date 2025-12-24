@@ -834,197 +834,197 @@ def render_invoice_ui(df_main, df_history_data, mode="standard"):
 # ==========================================
 # 4. UI & LOGIC
 # ==========================================
-if raw_file_obj:
-    df = None
-    try:
-        if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
-        xl = pd.ExcelFile(raw_file_obj)
-        sheet_names = xl.sheet_names
-        default_ix = sheet_names.index('Confirmed') if 'Confirmed' in sheet_names else 0
-        selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
-        df = pd.read_excel(raw_file_obj, sheet_name=selected_sheet)
-    except Exception as e_excel:
-        st.error(f"❌ Excel Read Error: {e_excel}")
-        st.info("ℹ️ File seems corrupted or password protected.")
-
-    if df is not None:
+try:
+    if raw_file_obj:
+        df = None
         try:
-            df = normalize_columns(df, COLUMN_ALIASES)
-            # Ensure we have both Serial No. (New) and Ref. No. (Old Serial)
-            missing = [k for k in ['Name', 'Mobile', 'Ref. No.', 'Serial No.'] if k not in df.columns]
-            if missing: st.error(f"Missing columns in uploaded file: {missing}"); st.stop()
-            st.success("✅ Data Loaded")
+            if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
+            xl = pd.ExcelFile(raw_file_obj)
+            sheet_names = xl.sheet_names
+            default_ix = sheet_names.index('Confirmed') if 'Confirmed' in sheet_names else 0
+            selected_sheet = st.sidebar.selectbox("Select Sheet:", sheet_names, index=default_ix)
+            df = pd.read_excel(raw_file_obj, sheet_name=selected_sheet)
+        except Exception as e_excel:
+            st.error(f"❌ Excel Read Error: {e_excel}")
+            st.info("ℹ️ File seems corrupted or password protected.")
 
-            # [OPTIMIZED] Calls cached data fetcher
-            df_history = get_history_data(sheet_obj)
-            
-            # === TAB 1: GENERATE INVOICE ===
-            with tab1:
-                render_invoice_ui(df, df_history, mode="standard")
-
-            # === TAB 2: FORCE NEW INVOICE ===
-            with tab2:
-                render_invoice_ui(df, df_history, mode="force_new")
-
-            # === TAB 3: DUPLICATE INVOICE (REPRINT) ===
-            with tab3:
-                st.header("📄 Duplicate / Reprint Invoice")
-                if not df_history.empty and 'Customer Name' in df_history.columns:
-                    reprint_data = df_history[df_history['Invoice Number'].str.strip() != ""]
-                    if not reprint_data.empty:
-                        reprint_data['ReprintDisplay'] = (
-                            reprint_data['Invoice Number'].astype(str) + " | " + 
-                            reprint_data['Customer Name'].astype(str) + " | " + 
-                            reprint_data['Date'].astype(str)
-                        )
-                        selected_reprint = st.selectbox("Select Invoice to Reprint:", [""] + reprint_data['ReprintDisplay'].tolist())
-                        
-                        if selected_reprint:
-                            inv_to_reprint = selected_reprint.split(" | ")[0].strip()
-                            row_data = reprint_data[reprint_data['Invoice Number'] == inv_to_reprint].iloc[0]
-                            
-                            st.divider()
-                            st.info(f"Generating Duplicate Copy for Invoice: {inv_to_reprint}")
-                            
-                            c_name_rep = str(row_data.get('Customer Name', ''))
-                            inv_num_rep = str(row_data.get('Invoice Number', ''))
-                            fmt_date_rep = str(row_data.get('Date', ''))
-                            c_plan_rep = str(row_data.get('Plan', ''))
-                            c_gender_rep = str(row_data.get('Gender', ''))
-                            c_age_rep = str(row_data.get('Age', ''))
-                            c_mob_rep = str(row_data.get('Mobile', ''))
-                            c_addr_rep = str(row_data.get('Address', ''))
-                            desc_html_rep = f"""<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{str(row_data.get('Shift', ''))}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{str(row_data.get('Period', ''))}</div></div>"""
-                            
-                            try: amt_unit = float(row_data.get('Amount', 0))
-                            except: amt_unit = 0.0
-                            try: amt_paid = float(row_data.get('Amount Paid', 0))
-                            except: amt_paid = 0.0
-                            
-                            details_txt = str(row_data.get('Details', ''))
-
-                            amount_html_rep = f"""
-                            <div style="text-align: right; font-size: 13px; color: #555;">
-                                <div style="margin-bottom: 4px;">{str(row_data.get('Shift', ''))} / {str(row_data.get('Period', ''))} = <b>₹ {amt_unit:.0f}</b></div>
-                                <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
-                                <div style="font-weight: bold; font-size: 13px; margin: 2px 0; color: #333;">{details_txt}</div>
-                                <div style="border-bottom: 1px solid #ccc; width: 100%; margin: 6px 0;"></div>
-                                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
-                                    <span style="font-size: 13px; font-weight: 800; color: #002147; text-transform: uppercase;">TOTAL - </span>
-                                    <span style="font-size: 16px; font-weight: bold; color: #000;">Rs. {amt_paid:.0f}</span>
-                                </div>
-                            </div>
-                            """
-
-                            inc_rep_list, exc_rep_list = get_base_lists(c_plan_rep, "All")
-                            inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_rep_list])
-                            exc_html_rep = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_rep_list])
-                            
-                            notes_raw_rep = str(row_data.get('Notes / Remarks', ''))
-                            notes_sec_rep = ""
-                            if notes_raw_rep:
-                                notes_sec_rep = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{notes_raw_rep}</p></div>"""
-
-                            html_rep = f"""
-                                <!DOCTYPE html>
-                                <html lang="en">
-                                <head>
-                                    <meta charset="UTF-8">
-                                    <script src="https://cdn.tailwindcss.com"></script>
-                                    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-                                    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-                                    <script>tailwind.config = {{ theme: {{ extend: {{ colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }}, fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }} }} }} }}</script>
-                                    <style>@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap'); body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }} .invoice-page {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 40px; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column; }} .watermark-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; opacity: 0.03; pointer-events: none; z-index: 0; }} .watermark-text {{ font-family: 'Playfair Display', serif; font-size: 80px; font-weight: 700; color: #002147; letter-spacing: 0.3em; }} @media print {{ body {{ background: white; -webkit-print-color-adjust: exact; }} .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }} .no-print {{ display: none !important; }} .watermark-container {{ opacity: 0.015 !important; }} }}</style>
-                                </head>
-                                <body class="py-10">
-                                    <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4"><button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest"><i class="fas fa-download mr-2"></i> Download PDF</button></div>
-                                    <div class="invoice-page" id="invoice-content">
-                                        <div class="watermark-container"><img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.3;"><div class="watermark-text mt-4">VESAK</div></div>
-                                        <header class="relative z-10 w-full mb-10"><div class="flex justify-between items-start border-b border-gray-100 pb-6"><div class="flex items-center gap-5"><img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto"><div><h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">Vesak Care <span class="text-vesak-gold font-normal">Foundation</span></h1><div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5"><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span></div></div></div><div class="text-right"><span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span><div class="text-xs text-vesak-navy"><div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date_rep}</b></div><div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num_rep}</b></div></div></div></div></header>
-                                        <main class="flex-grow relative z-10">
-                                            <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy"><div class="w-1/2 p-4 border-r border-gray-200"><div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div><div class="text-lg font-bold text-vesak-navy">{c_name_rep}</div><div class="flex gap-4 mt-2 text-xs text-gray-600"><div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender_rep}</div><div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age_rep} Yrs</div></div></div><div class="w-1/2 p-4 flex flex-col justify-center"><div class="flex items-center gap-2 text-xs text-gray-600 mb-2"><i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob_rep}</div><div class="flex items-start gap-2 text-xs text-gray-600"><i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> <span class="leading-tight">{c_addr_rep}</span></div></div></div>
-                                            <table class="w-full mb-8"><thead><tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left"><th class="p-3 w-3/5">Description</th><th class="p-3 w-2/5 text-right">Amount</th></tr></thead><tbody><tr class="border-b border-gray-100"><td class="p-4 align-top"><div class="font-bold text-sm text-gray-800">{c_plan_rep}</div>{desc_html_rep}</td><td class="p-4 text-right font-bold text-sm text-gray-800 align-top">{amount_html_rep}</td></tr></tbody></table>
-                                            <div class="grid grid-cols-2 gap-8"><div><h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4><ul class="list-disc pl-4 space-y-1">{inc_html_rep}</ul></div><div><h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4><ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html_rep}</ul></div></div>
-                                            {notes_sec_rep}
-                                            <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">Thank you for choosing Vesak Care Foundation!</div>
-                                        </main>
-                                        <footer class="relative z-10 mt-auto w-full"><div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div><div class="flex justify-between items-end text-xs text-gray-500"><div><p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p><div class="flex gap-2"><span>Pune</span><span class="text-vesak-gold">•</span><span>Mumbai</span><span class="text-vesak-gold">•</span><span>Kolhapur</span></div></div><div class="flex flex-col items-end gap-1"><span class="flex items-center gap-2"><img src="data:image/png;base64,{ig_b64}" class="w-3 h-3 mr-1"> @VesakCare</span><span class="flex items-center gap-2"><img src="data:image/png;base64,{fb_b64}" class="w-3 h-3 mr-1"> @VesakCare</span></div></div><div class="mt-4 w-full h-1 bg-vesak-navy"></div></footer>
-                                    </div>
-                                    <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'Invoice_{c_name_rep}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
-                                </body>
-                                </html>
-                            """
-                            components.html(html_template, height=1000, scrolling=True)
-
-            # === TAB 4: MANAGE SERVICES (UPDATED WITH DATE FILTER) ===
-            with tab4:
-                st.header("🛑 Manage Active Services")
+        if df is not None:
+            try:
+                df = normalize_columns(df, COLUMN_ALIASES)
+                # Ensure we have both Serial No. (New) and Ref. No. (Old Serial)
+                missing = [k for k in ['Name', 'Mobile', 'Ref. No.', 'Serial No.'] if k not in df.columns]
+                if missing: st.error(f"Missing columns in uploaded file: {missing}"); st.stop()
+                st.success("✅ Data Loaded")
 
                 # [OPTIMIZED] Calls cached data fetcher
-                df_hist = get_history_data(sheet_obj)
+                df_history = get_history_data(sheet_obj)
+                
+                # === TAB 1: GENERATE INVOICE ===
+                with tab1:
+                    render_invoice_ui(df, df_history, mode="standard")
 
-                if not df_hist.empty:
-                    df_hist = df_hist.fillna("")
-                    # Check for 'Service Ended' column. Now usually at end (Col X/23)
-                    # Just check by name
-                    if 'Service Ended' not in df_hist.columns:
-                        st.warning("⚠️ 'Service Ended' column not found in History sheet.")
-                    else:
-                        active_services = df_hist[df_hist['Service Ended'].astype(str).str.strip() == ""]
-                        
-                        # --- NEW: DATE FILTER LOGIC ---
-                        col_m1, col_m2 = st.columns([1, 2])
-                        with col_m1:
-                            use_filter = st.checkbox("Filter by Invoice Date", key="man_use_filter")
-                        
-                        if use_filter:
-                            with col_m2:
-                                # --- MODIFICATION: Range Logic (Selected Date AND Selected Date + 1 Day) ---
-                                filter_date_manage = st.date_input("Show services started on Selected Date & +1 Day:", value=datetime.date.today(), key="man_filter_date")
-                            
-                                d_start_manage = filter_date_manage 
-                                d_end_manage = filter_date_manage + datetime.timedelta(days=1)
-                            
-                            if not active_services.empty and 'Date' in active_services.columns:
-                                # Convert string date to object for comparison (robust method)
-                                active_services['DateObj'] = pd.to_datetime(active_services['Date'], errors='coerce').dt.date
-                                # --- MODIFICATION: Apply Range Filter ---
-                                active_services = active_services[(active_services['DateObj'] >= d_start_manage) & (active_services['DateObj'] <= d_end_manage)]
-                        # -----------------------------
+                # === TAB 2: FORCE NEW INVOICE ===
+                with tab2:
+                    render_invoice_ui(df, df_history, mode="force_new")
 
-                        if not active_services.empty:
-                            active_services['Display'] = (
-                                active_services['Invoice Number'].astype(str) + " - " + 
-                                active_services['Customer Name'].astype(str) + " (" + 
-                                active_services['Date'].astype(str) + ")"
+                # === TAB 3: DUPLICATE INVOICE (REPRINT) ===
+                with tab3:
+                    st.header("📄 Duplicate / Reprint Invoice")
+                    if not df_history.empty and 'Customer Name' in df_history.columns:
+                        reprint_data = df_history[df_history['Invoice Number'].str.strip() != ""]
+                        if not reprint_data.empty:
+                            reprint_data['ReprintDisplay'] = (
+                                reprint_data['Invoice Number'].astype(str) + " | " + 
+                                reprint_data['Customer Name'].astype(str) + " | " + 
+                                reprint_data['Date'].astype(str)
                             )
-                            options = [""] + active_services['Display'].tolist()
-                            selected_service_disp = st.selectbox("Select Active Service to END:", options)
-                            manual_end_date = st.date_input("Service End Date:", value=datetime.date.today())
+                            selected_reprint = st.selectbox("Select Invoice to Reprint:", [""] + reprint_data['ReprintDisplay'].tolist())
+                            
+                            if selected_reprint:
+                                inv_to_reprint = selected_reprint.split(" | ")[0].strip()
+                                row_data = reprint_data[reprint_data['Invoice Number'] == inv_to_reprint].iloc[0]
+                                
+                                st.divider()
+                                st.info(f"Generating Duplicate Copy for Invoice: {inv_to_reprint}")
+                                
+                                c_name_rep = str(row_data.get('Customer Name', ''))
+                                inv_num_rep = str(row_data.get('Invoice Number', ''))
+                                fmt_date_rep = str(row_data.get('Date', ''))
+                                c_plan_rep = str(row_data.get('Plan', ''))
+                                c_gender_rep = str(row_data.get('Gender', ''))
+                                c_age_rep = str(row_data.get('Age', ''))
+                                c_mob_rep = str(row_data.get('Mobile', ''))
+                                c_addr_rep = str(row_data.get('Address', ''))
+                                desc_html_rep = f"""<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{str(row_data.get('Shift', ''))}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{str(row_data.get('Period', ''))}</div></div>"""
+                                
+                                try: amt_unit = float(row_data.get('Amount', 0))
+                                except: amt_unit = 0.0
+                                try: amt_paid = float(row_data.get('Amount Paid', 0))
+                                except: amt_paid = 0.0
+                                
+                                details_txt = str(row_data.get('Details', ''))
 
-                            if selected_service_disp:
-                                inv_to_end = selected_service_disp.split(" - ")[0].strip()
-                                name_to_end = selected_service_disp.split(" - ")[1].split(" (")[0]
-                                st.warning(f"Are you sure you want to end service for **{name_to_end}** (Invoice: {inv_to_end}) on **{manual_end_date}**?")
-                                if st.button("Mark Service as ENDED 🛑"):
-                                    success, time_ended = mark_service_ended(sheet_obj, inv_to_end, manual_end_date)
-                                    if success:
-                                        st.success(f"✅ Service for {name_to_end} marked as ENDED at {time_ended}")
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ Failed to update: {time_ended}")
+                                amount_html_rep = f"""
+                                <div style="text-align: right; font-size: 13px; color: #555;">
+                                    <div style="margin-bottom: 4px;">{str(row_data.get('Shift', ''))} / {str(row_data.get('Period', ''))} = <b>₹ {amt_unit:.0f}</b></div>
+                                    <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
+                                    <div style="font-weight: bold; font-size: 13px; margin: 2px 0; color: #333;">{details_txt}</div>
+                                    <div style="border-bottom: 1px solid #ccc; width: 100%; margin: 6px 0;"></div>
+                                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                                        <span style="font-size: 13px; font-weight: 800; color: #002147; text-transform: uppercase;">TOTAL - </span>
+                                        <span style="font-size: 16px; font-weight: bold; color: #000;">Rs. {amt_paid:.0f}</span>
+                                    </div>
+                                </div>
+                                """
+
+                                inc_rep_list, exc_rep_list = get_base_lists(c_plan_rep, "All")
+                                inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_rep_list])
+                                exc_html_rep = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_rep_list])
+                                
+                                notes_raw_rep = str(row_data.get('Notes / Remarks', ''))
+                                notes_sec_rep = ""
+                                if notes_raw_rep:
+                                    notes_sec_rep = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{notes_raw_rep}</p></div>"""
+
+                                html_rep = f"""
+                                    <!DOCTYPE html>
+                                    <html lang="en">
+                                    <head>
+                                        <meta charset="UTF-8">
+                                        <script src="https://cdn.tailwindcss.com"></script>
+                                        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+                                        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+                                        <script>tailwind.config = {{ theme: {{ extend: {{ colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }}, fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }} }} }} }}</script>
+                                        <style>@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap'); body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }} .invoice-page {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 40px; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column; }} .watermark-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; opacity: 0.03; pointer-events: none; z-index: 0; }} .watermark-text {{ font-family: 'Playfair Display', serif; font-size: 80px; font-weight: 700; color: #002147; letter-spacing: 0.3em; }} @media print {{ body {{ background: white; -webkit-print-color-adjust: exact; }} .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }} .no-print {{ display: none !important; }} .watermark-container {{ opacity: 0.015 !important; }} }}</style>
+                                    </head>
+                                    <body class="py-10">
+                                        <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4"><button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest"><i class="fas fa-download mr-2"></i> Download PDF</button></div>
+                                        <div class="invoice-page" id="invoice-content">
+                                            <div class="watermark-container"><img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.3;"><div class="watermark-text mt-4">VESAK</div></div>
+                                            <header class="relative z-10 w-full mb-10"><div class="flex justify-between items-start border-b border-gray-100 pb-6"><div class="flex items-center gap-5"><img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto"><div><h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">Vesak Care <span class="text-vesak-gold font-normal">Foundation</span></h1><div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5"><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span></div></div></div><div class="text-right"><span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span><div class="text-xs text-vesak-navy"><div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date_rep}</b></div><div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num_rep}</b></div></div></div></div></header>
+                                            <main class="flex-grow relative z-10">
+                                                <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy"><div class="w-1/2 p-4 border-r border-gray-200"><div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div><div class="text-lg font-bold text-vesak-navy">{c_name_rep}</div><div class="flex gap-4 mt-2 text-xs text-gray-600"><div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender_rep}</div><div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age_rep} Yrs</div></div></div><div class="w-1/2 p-4 flex flex-col justify-center"><div class="flex items-center gap-2 text-xs text-gray-600 mb-2"><i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob_rep}</div><div class="flex items-start gap-2 text-xs text-gray-600"><i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> <span class="leading-tight">{c_addr_rep}</span></div></div></div>
+                                                <table class="w-full mb-8"><thead><tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left"><th class="p-3 w-3/5">Description</th><th class="p-3 w-2/5 text-right">Amount</th></tr></thead><tbody><tr class="border-b border-gray-100"><td class="p-4 align-top"><div class="font-bold text-sm text-gray-800">{c_plan_rep}</div>{desc_html_rep}</td><td class="p-4 text-right font-bold text-sm text-gray-800 align-top">{amount_html_rep}</td></tr></tbody></table>
+                                                <div class="grid grid-cols-2 gap-8"><div><h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4><ul class="list-disc pl-4 space-y-1">{inc_html_rep}</ul></div><div><h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4><ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html_rep}</ul></div></div>
+                                                {notes_sec_rep}
+                                                <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">Thank you for choosing Vesak Care Foundation!</div>
+                                            </main>
+                                            <footer class="relative z-10 mt-auto w-full"><div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div><div class="flex justify-between items-end text-xs text-gray-500"><div><p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p><div class="flex gap-2"><span>Pune</span><span class="text-vesak-gold">•</span><span>Mumbai</span><span class="text-vesak-gold">•</span><span>Kolhapur</span></div></div><div class="flex flex-col items-end gap-1"><span class="flex items-center gap-2"><img src="data:image/png;base64,{ig_b64}" class="w-3 h-3 mr-1"> @VesakCare</span><span class="flex items-center gap-2"><img src="data:image/png;base64,{fb_b64}" class="w-3 h-3 mr-1"> @VesakCare</span></div></div><div class="mt-4 w-full h-1 bg-vesak-navy"></div></footer>
+                                        </div>
+                                        <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'Invoice_{c_name_rep}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
+                                    </body>
+                                    </html>
+                                """
+                                components.html(html_rep, height=1000, scrolling=True)
+
+                # === TAB 4: MANAGE SERVICES (UPDATED WITH DATE FILTER) ===
+                with tab4:
+                    st.header("🛑 Manage Active Services")
+
+                    # [OPTIMIZED] Calls cached data fetcher
+                    df_hist = get_history_data(sheet_obj)
+
+                    if not df_hist.empty:
+                        df_hist = df_hist.fillna("")
+                        if 'Service Ended' not in df_hist.columns:
+                            st.warning("⚠️ 'Service Ended' column not found in History sheet.")
                         else:
+                            active_services = df_hist[df_hist['Service Ended'].astype(str).str.strip() == ""]
+                            
+                            # --- NEW: DATE FILTER LOGIC ---
+                            col_m1, col_m2 = st.columns([1, 2])
+                            with col_m1:
+                                use_filter = st.checkbox("Filter by Invoice Date", key="man_use_filter")
+                            
                             if use_filter:
-                                st.info(f"No active services found starting between {d_start_manage} and {d_end_manage}.")
+                                with col_m2:
+                                    # --- MODIFICATION: Range Logic (Selected Date AND Selected Date + 1 Day) ---
+                                    filter_date_manage = st.date_input("Show services started on Selected Date & +1 Day:", value=datetime.date.today(), key="man_filter_date")
+                                
+                                    d_start_manage = filter_date_manage 
+                                    d_end_manage = filter_date_manage + datetime.timedelta(days=1)
+                                
+                                    if not active_services.empty and 'Date' in active_services.columns:
+                                        # Convert string date to object for comparison (robust method)
+                                        active_services['DateObj'] = pd.to_datetime(active_services['Date'], errors='coerce').dt.date
+                                        # --- MODIFICATION: Apply Range Filter ---
+                                        active_services = active_services[(active_services['DateObj'] >= d_start_manage) & (active_services['DateObj'] <= d_end_manage)]
+                            # -----------------------------
+
+                            if not active_services.empty:
+                                active_services['Display'] = (
+                                    active_services['Invoice Number'].astype(str) + " - " + 
+                                    active_services['Customer Name'].astype(str) + " (" + 
+                                    active_services['Date'].astype(str) + ")"
+                                )
+                                options = [""] + active_services['Display'].tolist()
+                                selected_service_disp = st.selectbox("Select Active Service to END:", options)
+                                manual_end_date = st.date_input("Service End Date:", value=datetime.date.today())
+
+                                if selected_service_disp:
+                                    inv_to_end = selected_service_disp.split(" - ")[0].strip()
+                                    name_to_end = selected_service_disp.split(" - ")[1].split(" (")[0]
+                                    st.warning(f"Are you sure you want to end service for **{name_to_end}** (Invoice: {inv_to_end}) on **{manual_end_date}**?")
+                                    if st.button("Mark Service as ENDED 🛑"):
+                                        success, time_ended = mark_service_ended(sheet_obj, inv_to_end, manual_end_date)
+                                        if success:
+                                            st.success(f"✅ Service for {name_to_end} marked as ENDED at {time_ended}")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Failed to update: {time_ended}")
                             else:
-                                st.info("No active services found (All rows have End Dates).")
-                else:
-                    st.info("History sheet is empty.")
-            else:
-                # Fallback if df is None
-                st.warning("⚠ Please upload a file or load from URL to view content.")
+                                if use_filter:
+                                    st.info(f"No active services found starting between {d_start_manage} and {d_end_manage}.")
+                                else:
+                                    st.info("No active services found (All rows have End Dates).")
+                    else:
+                        st.info("History sheet is empty.")
+        except Exception as e_proc:
+             st.error(f"Processing Error: {e_proc}")
+             st.code(traceback.format_exc())
+    else:
+         st.warning("⚠ Please upload a file or load from URL to view content.")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"App Error: {e}")
     st.code(traceback.format_exc())
-
