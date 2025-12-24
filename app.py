@@ -951,11 +951,11 @@ try:
                                             </main>
                                             <footer class="relative z-10 mt-auto w-full"><div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div><div class="flex justify-between items-end text-xs text-gray-500"><div><p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p><div class="flex gap-2"><span>Pune</span><span class="text-vesak-gold">•</span><span>Mumbai</span><span class="text-vesak-gold">•</span><span>Kolhapur</span></div></div><div class="flex flex-col items-end gap-1"><span class="flex items-center gap-2"><img src="data:image/png;base64,{ig_b64}" class="w-3 h-3 mr-1"> @VesakCare</span><span class="flex items-center gap-2"><img src="data:image/png;base64,{fb_b64}" class="w-3 h-3 mr-1"> @VesakCare</span></div></div><div class="mt-4 w-full h-1 bg-vesak-navy"></div></footer>
                                         </div>
-                                        <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'Invoice_{c_name_rep}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
+                                        <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'Invoice_{c_name}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
                                     </body>
                                     </html>
                                 """
-                                components.html(html_rep, height=1000, scrolling=True)
+                                components.html(html_template, height=1000, scrolling=True)
 
                 # === TAB 4: MANAGE SERVICES (UPDATED WITH DATE FILTER) ===
                 with tab4:
@@ -1019,17 +1019,12 @@ try:
                                     st.info("No active services found (All rows have End Dates).")
                     else:
                         st.info("History sheet is empty.")
-                    
             except Exception as e_proc:
-                         st.error(f"Processing Error: {e_proc}")
-                         st.code(traceback.format_exc())
+                 st.error(f"Processing Error: {e_proc}")
+                 st.code(traceback.format_exc())
     else:
          st.warning("⚠ Please upload a file or load from URL to view content.")
 
 except Exception as e:
     st.error(f"App Error: {e}")
     st.code(traceback.format_exc())
-
-
-
-
