@@ -178,7 +178,7 @@ def get_next_invoice_number_gsheet(date_obj, df_hist):
             except: pass
     return f"{date_str}-{next_seq:03d}"
 
-# --- NEW FUNCTION: GET NEXT SERIAL NUMBER (Step 2) ---
+# --- STEP 2: SEQUENTIAL SERIAL NUMBER FUNCTION ---
 def get_next_serial_number_gsheet(df_hist):
     """Calculates the next Sequential Serial No based on History Sheet Column A"""
     if df_hist.empty or 'Serial No.' not in df_hist.columns:
@@ -936,8 +936,13 @@ if raw_file_obj:
                             </div>
                             """
 
-                            inc_def_rep = SERVICES_MASTER.get(c_plan_rep, ["Standard Services"])
-                            inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def_rep if item != "All"])
+                            # --- FIX FOR NAME ERROR: Generate Excluded Lists ---
+                            # Assuming 'All' subservices as history might not have subservice details
+                            inc_rep_list, exc_rep_list = get_base_lists(c_plan_rep, "All")
+                            
+                            inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_rep_list])
+                            exc_html_rep = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_rep_list])
+                            # ---------------------------------------------------
                             
                             notes_raw_rep = str(row_data.get('Notes / Remarks', ''))
                             notes_sec_rep = ""
