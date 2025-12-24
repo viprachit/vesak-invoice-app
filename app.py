@@ -174,8 +174,9 @@ def get_next_invoice_number_gsheet(date_obj, df_hist):
         month_inv = df_hist[df_hist['Invoice Number'].str.startswith(prefix_str)]
         
         if not month_inv.empty:
-            # Sort to find the true last one
+            # Sort to find the true last one based on sequence
             try:
+                # Extract sequence number after dash
                 month_inv['Seq'] = month_inv['Invoice Number'].apply(lambda x: int(x.split('-')[-1]) if '-' in x else 0)
                 month_inv = month_inv.sort_values('Seq')
                 last_seq = month_inv['Seq'].iloc[-1]
@@ -191,7 +192,6 @@ def get_next_uid_gsheet(df_hist):
         return "0001"
     try:
         # Convert to numeric, coercing errors to NaN
-        # Check if 'UID' column has data
         uids = pd.to_numeric(df_hist['UID'], errors='coerce').fillna(0)
         if len(uids) == 0: return "0001"
         max_uid = uids.max()
@@ -204,10 +204,7 @@ def get_next_uid_gsheet(df_hist):
 def get_active_invoice_record(df_hist, ref_no):
     """Checks GS History for an ACTIVE invoice (Service Ended is Empty) for the given Ref. No."""
     if df_hist.empty: return None
-    
     # Ensure columns exist. 
-    # Note: In a DF from get_all_records, keys are headers. 
-    # Assuming 'Ref. No.' and 'Service Ended' headers exist.
     if 'Ref. No.' not in df_hist.columns: return None
     
     # Normalize
@@ -332,8 +329,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
                 break
         
         if row_idx_to_update:
-            # If we didn't get a UID (rare), use the one passed or generate one? 
-            # Ideally preserve.
+            # If we didn't get a UID (rare), use the one passed or generate one
             uid_to_save = current_uid if current_uid else data_dict.get("UID", "")
 
             row_values = [
@@ -379,10 +375,12 @@ def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
         # Search for Invoice Number (Column D / Index 4)
+        # Note: gspread 'find' usually searches the whole sheet or specific col.
+        # Column D is the 4th column.
         try:
              cell = sheet_obj.find(str(invoice_number).strip(), in_column=4)
         except:
-             # Fallback search
+             # Fallback search if col specific fails
              cell = sheet_obj.find(str(invoice_number).strip())
              
         if cell:
@@ -861,6 +859,7 @@ if raw_file_obj:
                                 st.rerun()
 
                         if success:
+                            # PDF Generation HTML (Unchanged structure)
                             inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
                             exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
                             notes_section = ""
