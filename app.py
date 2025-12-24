@@ -808,7 +808,7 @@ if raw_file_obj:
                             
                             # RECONSTRUCT DATA FOR HTML
                             # (Using values from history, not the current Excel upload)
-                            c_name_ rep = str(row_data.get('Customer Name', ''))
+                            c_name_rep = str(row_data.get('Customer Name', ''))
                             inv_num_rep = str(row_data.get('Invoice Number', ''))
                             fmt_date_rep = str(row_data.get('Date', ''))
                             c_plan_rep = str(row_data.get('Plan', ''))
@@ -942,3 +942,4 @@ if raw_file_obj:
                         st.info("No active services found (All rows have End Dates).")
         else:
             st.info("History sheet is empty.")
+
