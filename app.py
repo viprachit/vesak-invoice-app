@@ -200,7 +200,7 @@ def get_next_uid_gsheet(df_hist):
     except:
         return "0001"
 
-# --- UPDATED: GET RECORD BY REF NO (Checking Service Ended in Col X) ---
+# --- STEP 2: GET RECORD BY REF NO (Strict Matching) ---
 def get_active_invoice_record(df_hist, ref_no):
     """Checks GS History for an ACTIVE invoice (Service Ended is Empty) for the given Ref. No."""
     if df_hist.empty: return None
@@ -261,7 +261,7 @@ def get_last_billing_qty(df_hist, customer_name, mobile):
         if match: return int(match.group(1))
     return 1
 
-# --- STEP 1 & 3: SAVE TO GSHEET (New Column Structure) ---
+# --- STEP 1: SAVE TO GSHEET (New Column Structure) ---
 def save_invoice_to_gsheet(data_dict, sheet_obj):
     if sheet_obj is None: return False
     try:
@@ -305,7 +305,7 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         st.error(f"Error saving to Google Sheet: {e}")
         return False
 
-# --- UPDATED: UPDATE IN GSHEET (New Column Structure + Logic) ---
+# --- STEP 1: UPDATE IN GSHEET (New Column Structure + Logic) ---
 def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
     if sheet_obj is None: return False
     try:
@@ -370,7 +370,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
         st.error(f"Error updating Google Sheet: {e}")
         return False
 
-# --- UPDATED: MARK SERVICE ENDED (Column Shift to X) ---
+# --- STEP 1: MARK SERVICE ENDED (Column Shift to X) ---
 def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
@@ -601,6 +601,282 @@ elif data_source == "OneDrive Link":
 # --- TABS ---
 tab1, tab2, tab3, tab4 = st.tabs(["🧾 Generate Invoice", "🆕 Force New Invoice", "📄 Duplicate Invoice (Reprint)", "🛑 Manage Services"])
 
+# [CRITICAL FIX] Define function globally or outside the conditional block
+def render_invoice_ui(df_main, df_history_data, mode="standard"):
+    chk_overwrite = False
+    
+    # --- FILTER LIST LOGIC (Steps 2 & 3) ---
+    valid_ref_nos = []
+    
+    if not df_history_data.empty and 'Ref. No.' in df_history_data.columns:
+        unique_refs = df_main['Ref. No.'].unique()
+        
+        for ref in unique_refs:
+            is_ended = check_if_service_ended_history(df_history_data, ref)
+            
+            if mode == "standard":
+                # Show if NOT ended (Active or New)
+                if not is_ended: valid_ref_nos.append(str(ref))
+            elif mode == "force_new":
+                # Show ONLY if ended
+                if is_ended: valid_ref_nos.append(str(ref))
+    else:
+        # No history: All go to standard, None to force new
+        if mode == "standard":
+             valid_ref_nos = df_main['Ref. No.'].astype(str).tolist()
+    
+    # Filter main DF based on valid refs
+    df_main['Ref_Clean'] = df_main['Ref. No.'].astype(str).str.strip()
+    df_filtered_view = df_main[df_main['Ref_Clean'].isin([str(x).strip() for x in valid_ref_nos])]
+    
+    # --- UI FILTERING ---
+    filter_col1, filter_col2 = st.columns([1, 2])
+    with filter_col1:
+        enable_date_filter = st.checkbox("Filter Customer List by Date", key=f"filt_chk_{mode}")
+    
+    unique_labels = []
+    
+    if enable_date_filter:
+        with filter_col2:
+             selected_date_filter = st.date_input("Show customers for Selected Date & +1 Day:", value=datetime.date.today(), key=f"filt_date_{mode}")
+             d_start = selected_date_filter 
+             d_end = selected_date_filter + datetime.timedelta(days=1)
+             
+             if 'Call Date' in df_filtered_view.columns:
+                  df_filtered_view['CallDateObj'] = pd.to_datetime(df_filtered_view['Call Date'], errors='coerce').dt.date
+                  df_filtered_view = df_filtered_view[(df_filtered_view['CallDateObj'] >= d_start) & (df_filtered_view['CallDateObj'] <= d_end)]
+
+    df_filtered_view['Label'] = df_filtered_view['Name'].astype(str) + " (" + df_filtered_view['Mobile'].astype(str) + ")"
+    unique_labels = [""] + list(df_filtered_view['Label'].unique())
+
+    selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
+    
+    if not selected_label:
+        st.info("👈 Please select a customer to proceed.")
+        return
+
+    row = df_filtered_view[df_filtered_view['Label'] == selected_label].iloc[0]
+    
+    # Retrieve Data
+    c_serial = str(row.get('Serial No.', '')).strip() # Col B in GS (Static from Input)
+    c_ref_no = str(row.get('Ref. No.', '')).strip() # Col C in GS (Static from Input)
+    c_plan = row.get('Service Required', '')
+    c_sub = row.get('Sub Service', '')
+    c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
+    c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
+    c_name = row.get('Name', '')
+    c_gender = row.get('Gender', '')
+    raw_age = row.get('Age', '')
+    try: c_age = str(int(float(raw_age))) if not pd.isna(raw_age) and raw_age != '' else ""
+    except: c_age = str(raw_age)
+    c_addr = row.get('Address', '')
+    c_location = row.get('Location', c_addr) 
+    c_mob = row.get('Mobile', '')
+    inc_def, exc_def = get_base_lists(c_plan, c_sub)
+    
+    st.divider()
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
+        st.write(f"**Ref No:** {c_ref_no}")
+        
+        # --- STEP 1: Date Reset Logic ---
+        inv_date = st.date_input("Date:", value=datetime.date.today(), key=f"date_{mode}_{selected_label}")
+        fmt_date = format_date_with_suffix(inv_date)
+        default_qty = get_last_billing_qty(df_history_data, c_name, c_mob)
+        p_raw = str(row.get('Period', '')).strip()
+        shift_raw = str(row.get('Shift', '')).strip() 
+        
+        if "per visit" in shift_raw.lower(): bill_label = "Visits"
+        elif "month" in p_raw.lower(): bill_label = "Months"
+        elif "week" in p_raw.lower(): bill_label = "Weeks"
+        else: bill_label = "Days"
+        
+        billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
+        
+        # --- CRITICAL LOGIC STEP 5 (Invoice No) & STEP 4 (UID) ---
+        active_record = get_active_invoice_record(df_history_data, c_ref_no)
+        
+        existing_inv_num = ""
+        default_inv_num = "" 
+        conflict_exists = False
+        
+        # Calculate next numbers
+        next_sequential_inv = get_next_invoice_number_gsheet(inv_date, df_history_data) # Step 5
+        next_uid = get_next_uid_gsheet(df_history_data) # Step 4
+
+        final_uid = ""
+
+        if mode == "standard":
+            if active_record is not None:
+                # Active Service Exists -> Block Generation, Enable Overwrite
+                existing_inv_num = str(active_record['Invoice Number'])
+                conflict_exists = True
+                st.warning(f"⚠️ Active Invoice Found: {existing_inv_num}. You must Overwrite to update.")
+                default_inv_num = existing_inv_num
+                # Use existing UID for overwrite
+                final_uid = str(active_record.get('UID', ''))
+            else:
+                # No Active Service -> New Invoice
+                st.info(f"ℹ️ Generating New Invoice No: {next_sequential_inv}")
+                default_inv_num = next_sequential_inv
+                # New UID
+                final_uid = str(next_uid)
+        elif mode == "force_new":
+            # Always new for force new
+            default_inv_num = next_sequential_inv
+            st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
+            # New UID
+            final_uid = str(next_uid)
+
+        if mode == "standard" and conflict_exists:
+                 chk_overwrite = st.checkbox("Overwrite Existing Entry", key=f"chk_over_{mode}")
+        
+        is_disabled = True
+        if mode == "standard" and chk_overwrite:
+            is_disabled = False # Editable
+        
+        inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}_{inv_date}_{chk_overwrite}_{default_inv_num}", disabled=is_disabled)
+        st.caption(f"Ref Date: {c_ref_date}")
+        
+    with col2:
+        generated_by_input = st.text_input("Invoice Generated By:", placeholder="", key=f"gen_by_{mode}")
+        generated_by = generated_by_input if generated_by_input else "Vesak Patient Care"
+        final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def, key=f"exc_{mode}")
+        
+    st.write("**Included Services:**")
+    st.text(", ".join(inc_def))
+    final_notes = st.text_area("Notes:", value=c_notes_raw, key=f"notes_{mode}")
+    
+    desc_col_html = construct_description_html(row) 
+    amount_col_html = construct_amount_html(row, billing_qty)
+    
+    btn_label = "Generate & Save Invoice"
+    if mode == "force_new": btn_label = "⚠ Force Generate New Invoice"
+    elif chk_overwrite: btn_label = "⚠ Update/Overwrite Invoice"
+    
+    btn_disabled = False
+    if mode == "standard" and conflict_exists and not chk_overwrite:
+        btn_disabled = True
+    
+    if st.button(btn_label, key=f"btn_{mode}", disabled=btn_disabled):
+        proceed = True
+        
+        if proceed:
+            clean_plan = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
+            inv_num = inv_num_input
+            
+            def safe_float(val):
+                try: return float(val) if not pd.isna(val) else 0.0
+                except: return 0.0
+            
+            unit_rate_val = safe_float(row.get('Unit Rate', 0))
+            total_billed_amount = unit_rate_val * billing_qty
+            
+            unit_label_for_details = "Month" if "month" in p_raw.lower() else "Week" if "week" in p_raw.lower() else "Day"
+            if "per visit" in shift_raw.lower(): unit_label_for_details = "Visit"
+
+            def get_plural_save(unit, qty):
+                if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
+                if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
+                if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
+                if "visit" in unit.lower(): return "Visits" if qty > 1 else "Visit"
+                return unit
+            
+            details_text = f"Paid for {billing_qty} {get_plural_save(unit_label_for_details, billing_qty)}"
+            if mode == "force_new": details_text += " (New)"
+
+            success = False
+            
+            try: visits_val = int(safe_float(row.get('Visits', 0)))
+            except: visits_val = 0
+            period_val = str(row.get('Period', ''))
+            generated_at_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # --- STEP 3: DATA MAPPING ---
+            # UID (Col A), Serial (Col B - Static), Ref (Col C - Static), Invoice (Col D - Dynamic)
+            invoice_record = {
+                "UID": str(final_uid),
+                "Serial No.": str(c_serial), 
+                "Ref. No.": str(c_ref_no),
+                "Invoice Number": str(inv_num), "Date": str(fmt_date),
+                "Generated At": generated_at_ts, "Customer Name": str(c_name), "Age": str(c_age),
+                "Gender": str(c_gender), "Location": str(c_location), "Address": str(c_addr),
+                "Mobile": str(c_mob), "Plan": str(clean_plan), "Shift": str(row.get('Shift', '')),
+                "Recurring Service": str(row.get('Recurring', '')), "Period": period_val, 
+                "Visits": int(visits_val), "Amount": float(unit_rate_val), "Notes / Remarks": str(final_notes),  
+                "Generated By": str(generated_by), "Amount Paid": float(total_billed_amount), 
+                "Details": details_text, "Service Started": generated_at_ts, "Service Ended": ""
+            }
+            
+            if mode == "standard" and chk_overwrite:
+                if update_invoice_in_gsheet(invoice_record, sheet_obj, existing_inv_num):
+                    st.success(f"✅ Invoice {existing_inv_num} UPDATED to {inv_num}!")
+                    success = True
+                    st.rerun() 
+            elif mode == "standard":
+                if save_invoice_to_gsheet(invoice_record, sheet_obj):
+                    st.success(f"✅ Invoice {inv_num} SAVED!")
+                    success = True
+                    st.rerun()
+            elif mode == "force_new":
+                if active_record is not None:
+                    prev_inv = active_record['Invoice Number']
+                    success_end, end_ts = mark_service_ended(sheet_obj, prev_inv, inv_date)
+                    if success_end: st.info(f"ℹ️ Previous Invoice {prev_inv} marked as Ended at {end_ts}")
+               
+                if save_invoice_to_gsheet(invoice_record, sheet_obj):
+                    st.success(f"✅ New Invoice {inv_num} CREATED!")
+                    success = True
+                    st.rerun()
+
+            if success:
+                # PDF Generation HTML (Unchanged structure)
+                inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
+                exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
+                notes_section = ""
+                if final_notes:
+                    notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
+
+                html_template = f"""
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <script src="https://cdn.tailwindcss.com"></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+                    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+                    <script>tailwind.config = {{ theme: {{ extend: {{ colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }}, fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }} }} }} }}</script>
+                    <style>@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap'); body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }} .invoice-page {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 40px; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column; }} .watermark-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; opacity: 0.03; pointer-events: none; z-index: 0; }} .watermark-text {{ font-family: 'Playfair Display', serif; font-size: 80px; font-weight: 700; color: #002147; letter-spacing: 0.3em; }} @media print {{ body {{ background: white; -webkit-print-color-adjust: exact; }} .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }} .no-print {{ display: none !important; }} .watermark-container {{ opacity: 0.015 !important; }} }}</style>
+                </head>
+                <body class="py-10">
+                    <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4"><button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest"><i class="fas fa-download mr-2"></i> Download PDF</button></div>
+                    <div class="invoice-page" id="invoice-content">
+                        <div class="watermark-container"><img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.3;"><div class="watermark-text mt-4">VESAK</div></div>
+                        <header class="relative z-10 w-full mb-10"><div class="flex justify-between items-start border-b border-gray-100 pb-6"><div class="flex items-center gap-5"><img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto"><div><h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">Vesak Care <span class="text-vesak-gold font-normal">Foundation</span></h1><div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5"><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span></div></div></div><div class="text-right"><span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span><div class="text-xs text-vesak-navy"><div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date}</b></div><div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num}</b></div></div></div></div></header>
+                        <main class="flex-grow relative z-10">
+                            <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy"><div class="w-1/2 p-4 border-r border-gray-200"><div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div><div class="text-lg font-bold text-vesak-navy">{c_name}</div><div class="flex gap-4 mt-2 text-xs text-gray-600"><div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender}</div><div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age} Yrs</div></div></div><div class="w-1/2 p-4 flex flex-col justify-center"><div class="flex items-center gap-2 text-xs text-gray-600 mb-2"><i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob}</div><div class="flex items-start gap-2 text-xs text-gray-600"><i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> <span class="leading-tight">{c_addr}</span></div></div></div>
+                            <table class="w-full mb-8"><thead><tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left"><th class="p-3 w-3/5">Description</th><th class="p-3 w-2/5 text-right">Amount</th></tr></thead><tbody><tr class="border-b border-gray-100"><td class="p-4 align-top"><div class="font-bold text-sm text-gray-800">{clean_plan}</div>{desc_col_html}</td><td class="p-4 text-right font-bold text-sm text-gray-800 align-top">{amount_col_html}</td></tr></tbody></table>
+                            <div class="grid grid-cols-2 gap-8"><div><h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4><ul class="list-disc pl-4 space-y-1">{inc_html}</ul></div><div><h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4><ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html}</ul></div></div>
+                            {notes_section}
+                            <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">Thank you for choosing Vesak Care Foundation!</div>
+                        </main>
+                        <footer class="relative z-10 mt-auto w-full">
+                            <div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
+                            <div class="flex justify-between items-end text-xs text-gray-500">
+                                <div><p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p><div class="flex gap-2"><span>Pune</span><span class="text-vesak-gold">•</span><span>Mumbai</span><span class="text-vesak-gold">•</span><span>Kolhapur</span></div></div>
+                                <div class="flex flex-col items-end gap-1"><span class="flex items-center gap-2"><img src="data:image/png;base64,{ig_b64}" class="w-3 h-3 mr-1"> @VesakCare</span><span class="flex items-center gap-2"><img src="data:image/png;base64,{fb_b64}" class="w-3 h-3 mr-1"> @VesakCare</span></div>
+                            </div>
+                            <div class="mt-4 w-full h-1 bg-vesak-navy"></div>
+                        </footer>
+                    </div>
+                    <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'Invoice_{c_name}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
+                </body>
+                </html>
+                """
+                components.html(html_template, height=1000, scrolling=True)
+
 if raw_file_obj:
     df = None
     try:
@@ -624,285 +900,14 @@ if raw_file_obj:
 
             # [OPTIMIZED] Calls cached data fetcher
             df_history = get_history_data(sheet_obj)
+            
+            # === TAB 1: GENERATE INVOICE ===
+            with tab1:
+                render_invoice_ui(df, df_history, mode="standard")
 
-            # === SHARED GENERATOR FUNCTION FOR TAB 1 & 2 ===
-            def render_invoice_ui(mode="standard"):
-                chk_overwrite = False
-                
-                # --- FILTER LIST LOGIC (Steps 2 & 3) ---
-                # "Generate Invoice" (Standard): Show only clients who are NEW or ACTIVE (Service Ended is blank).
-                # "Force New Invoice": Show only clients who have ENDED Service (Service Ended has data).
-                
-                valid_ref_nos = []
-                
-                if not df_history.empty and 'Ref. No.' in df_history.columns:
-                    unique_refs = df['Ref. No.'].unique()
-                    
-                    for ref in unique_refs:
-                        is_ended = check_if_service_ended_history(df_history, ref)
-                        
-                        if mode == "standard":
-                            # Show if NOT ended (Active or New)
-                            if not is_ended: valid_ref_nos.append(str(ref))
-                        elif mode == "force_new":
-                            # Show ONLY if ended
-                            if is_ended: valid_ref_nos.append(str(ref))
-                else:
-                    # No history: All go to standard, None to force new
-                    if mode == "standard":
-                         valid_ref_nos = df['Ref. No.'].astype(str).tolist()
-                
-                # Filter main DF based on valid refs
-                df['Ref_Clean'] = df['Ref. No.'].astype(str).str.strip()
-                df_filtered_view = df[df['Ref_Clean'].isin([str(x).strip() for x in valid_ref_nos])]
-                
-                # --- UI FILTERING ---
-                filter_col1, filter_col2 = st.columns([1, 2])
-                with filter_col1:
-                    enable_date_filter = st.checkbox("Filter Customer List by Date", key=f"filt_chk_{mode}")
-                
-                unique_labels = []
-                
-                if enable_date_filter:
-                    with filter_col2:
-                         selected_date_filter = st.date_input("Show customers for Selected Date & +1 Day:", value=datetime.date.today(), key=f"filt_date_{mode}")
-                         d_start = selected_date_filter 
-                         d_end = selected_date_filter + datetime.timedelta(days=1)
-                         
-                         if 'Call Date' in df_filtered_view.columns:
-                              df_filtered_view['CallDateObj'] = pd.to_datetime(df_filtered_view['Call Date'], errors='coerce').dt.date
-                              df_filtered_view = df_filtered_view[(df_filtered_view['CallDateObj'] >= d_start) & (df_filtered_view['CallDateObj'] <= d_end)]
-
-                df_filtered_view['Label'] = df_filtered_view['Name'].astype(str) + " (" + df_filtered_view['Mobile'].astype(str) + ")"
-                unique_labels = [""] + list(df_filtered_view['Label'].unique())
-
-                selected_label = st.selectbox(f"Select Customer ({mode}):", unique_labels, key=f"sel_{mode}")
-                
-                if not selected_label:
-                    st.info("👈 Please select a customer to proceed.")
-                    return
-
-                row = df_filtered_view[df_filtered_view['Label'] == selected_label].iloc[0]
-                
-                # Retrieve Data
-                c_serial = str(row.get('Serial No.', '')).strip() # Col B in GS (Static from Input)
-                c_ref_no = str(row.get('Ref. No.', '')).strip() # Col C in GS (Static from Input)
-                c_plan = row.get('Service Required', '')
-                c_sub = row.get('Sub Service', '')
-                c_ref_date = format_date_with_suffix(row.get('Call Date', 'N/A'))
-                c_notes_raw = str(row.get('Notes', '')) if not pd.isna(row.get('Notes', '')) else ""
-                c_name = row.get('Name', '')
-                c_gender = row.get('Gender', '')
-                raw_age = row.get('Age', '')
-                try: c_age = str(int(float(raw_age))) if not pd.isna(raw_age) and raw_age != '' else ""
-                except: c_age = str(raw_age)
-                c_addr = row.get('Address', '')
-                c_location = row.get('Location', c_addr) 
-                c_mob = row.get('Mobile', '')
-                inc_def, exc_def = get_base_lists(c_plan, c_sub)
-                
-                st.divider()
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.info(f"**Plan:** {PLAN_DISPLAY_NAMES.get(c_plan, c_plan)}")
-                    st.write(f"**Ref No:** {c_ref_no}")
-                    
-                    # --- STEP 1: Date Reset Logic ---
-                    inv_date = st.date_input("Date:", value=datetime.date.today(), key=f"date_{mode}_{selected_label}")
-                    fmt_date = format_date_with_suffix(inv_date)
-                    default_qty = get_last_billing_qty(df_history, c_name, c_mob)
-                    p_raw = str(row.get('Period', '')).strip()
-                    shift_raw = str(row.get('Shift', '')).strip() 
-                    
-                    if "per visit" in shift_raw.lower(): bill_label = "Visits"
-                    elif "month" in p_raw.lower(): bill_label = "Months"
-                    elif "week" in p_raw.lower(): bill_label = "Weeks"
-                    else: bill_label = "Days"
-                    
-                    billing_qty = st.number_input(f"Paid for how many {bill_label}?", min_value=1, value=default_qty, step=1, key=f"qty_{mode}_{selected_label}")
-                    
-                    # --- CRITICAL LOGIC STEP 5 (Invoice No) & STEP 4 (UID) ---
-                    active_record = get_active_invoice_record(df_history, c_ref_no)
-                    
-                    existing_inv_num = ""
-                    default_inv_num = "" 
-                    conflict_exists = False
-                    
-                    # Calculate next numbers
-                    next_sequential_inv = get_next_invoice_number_gsheet(inv_date, df_history) # Step 5
-                    next_uid = get_next_uid_gsheet(df_history) # Step 4
-
-                    final_uid = ""
-
-                    if mode == "standard":
-                        if active_record is not None:
-                            # Active Service Exists -> Block Generation, Enable Overwrite
-                            existing_inv_num = str(active_record['Invoice Number'])
-                            conflict_exists = True
-                            st.warning(f"⚠️ Active Invoice Found: {existing_inv_num}. You must Overwrite to update.")
-                            default_inv_num = existing_inv_num
-                            # Use existing UID for overwrite
-                            final_uid = str(active_record.get('UID', ''))
-                        else:
-                            # No Active Service -> New Invoice
-                            st.info(f"ℹ️ Generating New Invoice No: {next_sequential_inv}")
-                            default_inv_num = next_sequential_inv
-                            # New UID
-                            final_uid = str(next_uid)
-                    elif mode == "force_new":
-                        # Always new for force new
-                        default_inv_num = next_sequential_inv
-                        st.warning("⚠ You are about to generate a NEW invoice for an existing client.")
-                        # New UID
-                        final_uid = str(next_uid)
-
-                    if mode == "standard" and conflict_exists:
-                             chk_overwrite = st.checkbox("Overwrite Existing Entry", key=f"chk_over_{mode}")
-                    
-                    is_disabled = True
-                    if mode == "standard" and chk_overwrite:
-                        is_disabled = False # Editable
-                    
-                    inv_num_input = st.text_input("Invoice No (New/Editable):", value=default_inv_num, key=f"inv_input_{mode}_{inv_date}_{chk_overwrite}_{default_inv_num}", disabled=is_disabled)
-                    st.caption(f"Ref Date: {c_ref_date}")
-                    
-                with col2:
-                    generated_by_input = st.text_input("Invoice Generated By:", placeholder="", key=f"gen_by_{mode}")
-                    generated_by = generated_by_input if generated_by_input else "Vesak Patient Care"
-                    final_exc = st.multiselect("Excluded (Editable):", options=exc_def + ["Others"], default=exc_def, key=f"exc_{mode}")
-                    
-                st.write("**Included Services:**")
-                st.text(", ".join(inc_def))
-                final_notes = st.text_area("Notes:", value=c_notes_raw, key=f"notes_{mode}")
-                
-                desc_col_html = construct_description_html(row) 
-                amount_col_html = construct_amount_html(row, billing_qty)
-                
-                btn_label = "Generate & Save Invoice"
-                if mode == "force_new": btn_label = "⚠ Force Generate New Invoice"
-                elif chk_overwrite: btn_label = "⚠ Update/Overwrite Invoice"
-                
-                btn_disabled = False
-                if mode == "standard" and conflict_exists and not chk_overwrite:
-                    btn_disabled = True
-                
-                if st.button(btn_label, key=f"btn_{mode}", disabled=btn_disabled):
-                    proceed = True
-                    
-                    if proceed:
-                        clean_plan = PLAN_DISPLAY_NAMES.get(c_plan, c_plan)
-                        inv_num = inv_num_input
-                        
-                        def safe_float(val):
-                            try: return float(val) if not pd.isna(val) else 0.0
-                            except: return 0.0
-                        
-                        unit_rate_val = safe_float(row.get('Unit Rate', 0))
-                        total_billed_amount = unit_rate_val * billing_qty
-                        
-                        unit_label_for_details = "Month" if "month" in p_raw.lower() else "Week" if "week" in p_raw.lower() else "Day"
-                        if "per visit" in shift_raw.lower(): unit_label_for_details = "Visit"
-
-                        def get_plural_save(unit, qty):
-                            if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
-                            if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
-                            if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
-                            if "visit" in unit.lower(): return "Visits" if qty > 1 else "Visit"
-                            return unit
-                        
-                        details_text = f"Paid for {billing_qty} {get_plural_save(unit_label_for_details, billing_qty)}"
-                        if mode == "force_new": details_text += " (New)"
-
-                        success = False
-                        
-                        try: visits_val = int(safe_float(row.get('Visits', 0)))
-                        except: visits_val = 0
-                        period_val = str(row.get('Period', ''))
-                        generated_at_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                        # --- STEP 3: DATA MAPPING ---
-                        # UID (Col A), Serial (Col B - Static), Ref (Col C - Static), Invoice (Col D - Dynamic)
-                        invoice_record = {
-                            "UID": str(final_uid),
-                            "Serial No.": str(c_serial), 
-                            "Ref. No.": str(c_ref_no),
-                            "Invoice Number": str(inv_num), "Date": str(fmt_date),
-                            "Generated At": generated_at_ts, "Customer Name": str(c_name), "Age": str(c_age),
-                            "Gender": str(c_gender), "Location": str(c_location), "Address": str(c_addr),
-                            "Mobile": str(c_mob), "Plan": str(clean_plan), "Shift": str(row.get('Shift', '')),
-                            "Recurring Service": str(row.get('Recurring', '')), "Period": period_val, 
-                            "Visits": int(visits_val), "Amount": float(unit_rate_val), "Notes / Remarks": str(final_notes),  
-                            "Generated By": str(generated_by), "Amount Paid": float(total_billed_amount), 
-                            "Details": details_text, "Service Started": generated_at_ts, "Service Ended": ""
-                        }
-                        
-                        if mode == "standard" and chk_overwrite:
-                            if update_invoice_in_gsheet(invoice_record, sheet_obj, existing_inv_num):
-                                st.success(f"✅ Invoice {existing_inv_num} UPDATED to {inv_num}!")
-                                success = True
-                                st.rerun() 
-                        elif mode == "standard":
-                            if save_invoice_to_gsheet(invoice_record, sheet_obj):
-                                st.success(f"✅ Invoice {inv_num} SAVED!")
-                                success = True
-                                st.rerun()
-                        elif mode == "force_new":
-                            if active_record is not None:
-                                prev_inv = active_record['Invoice Number']
-                                success_end, end_ts = mark_service_ended(sheet_obj, prev_inv, inv_date)
-                                if success_end: st.info(f"ℹ️ Previous Invoice {prev_inv} marked as Ended at {end_ts}")
-                           
-                            if save_invoice_to_gsheet(invoice_record, sheet_obj):
-                                st.success(f"✅ New Invoice {inv_num} CREATED!")
-                                success = True
-                                st.rerun()
-
-                        if success:
-                            # PDF Generation HTML (Unchanged structure)
-                            inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
-                            exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
-                            notes_section = ""
-                            if final_notes:
-                                notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
-
-                            html_template = f"""
-                            <!DOCTYPE html>
-                            <html lang="en">
-                            <head>
-                                <meta charset="UTF-8">
-                                <script src="https://cdn.tailwindcss.com"></script>
-                                <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-                                <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-                                <script>tailwind.config = {{ theme: {{ extend: {{ colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }}, fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }} }} }} }}</script>
-                                <style>@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap'); body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }} .invoice-page {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 40px; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column; }} .watermark-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; opacity: 0.03; pointer-events: none; z-index: 0; }} .watermark-text {{ font-family: 'Playfair Display', serif; font-size: 80px; font-weight: 700; color: #002147; letter-spacing: 0.3em; }} @media print {{ body {{ background: white; -webkit-print-color-adjust: exact; }} .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }} .no-print {{ display: none !important; }} .watermark-container {{ opacity: 0.015 !important; }} }}</style>
-                            </head>
-                            <body class="py-10">
-                                <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4"><button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest"><i class="fas fa-download mr-2"></i> Download PDF</button></div>
-                                <div class="invoice-page" id="invoice-content">
-                                    <div class="watermark-container"><img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.3;"><div class="watermark-text mt-4">VESAK</div></div>
-                                    <header class="relative z-10 w-full mb-10"><div class="flex justify-between items-start border-b border-gray-100 pb-6"><div class="flex items-center gap-5"><img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto"><div><h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">Vesak Care <span class="text-vesak-gold font-normal">Foundation</span></h1><div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5"><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span></div></div></div><div class="text-right"><span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span><div class="text-xs text-vesak-navy"><div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date}</b></div><div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num}</b></div></div></div></div></header>
-                                    <main class="flex-grow relative z-10">
-                                        <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy"><div class="w-1/2 p-4 border-r border-gray-200"><div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div><div class="text-lg font-bold text-vesak-navy">{c_name}</div><div class="flex gap-4 mt-2 text-xs text-gray-600"><div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender}</div><div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age} Yrs</div></div></div><div class="w-1/2 p-4 flex flex-col justify-center"><div class="flex items-center gap-2 text-xs text-gray-600 mb-2"><i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob}</div><div class="flex items-start gap-2 text-xs text-gray-600"><i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> <span class="leading-tight">{c_addr}</span></div></div></div>
-                                        <table class="w-full mb-8"><thead><tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left"><th class="p-3 w-3/5">Description</th><th class="p-3 w-2/5 text-right">Amount</th></tr></thead><tbody><tr class="border-b border-gray-100"><td class="p-4 align-top"><div class="font-bold text-sm text-gray-800">{clean_plan}</div>{desc_col_html}</td><td class="p-4 text-right font-bold text-sm text-gray-800 align-top">{amount_col_html}</td></tr></tbody></table>
-                                        <div class="grid grid-cols-2 gap-8"><div><h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4><ul class="list-disc pl-4 space-y-1">{inc_html}</ul></div><div><h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4><ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html}</ul></div></div>
-                                        {notes_section}
-                                        <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">Thank you for choosing Vesak Care Foundation!</div>
-                                    </main>
-                                    <footer class="relative z-10 mt-auto w-full">
-                                        <div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
-                                        <div class="flex justify-between items-end text-xs text-gray-500">
-                                            <div><p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p><div class="flex gap-2"><span>Pune</span><span class="text-vesak-gold">•</span><span>Mumbai</span><span class="text-vesak-gold">•</span><span>Kolhapur</span></div></div>
-                                            <div class="flex flex-col items-end gap-1"><span class="flex items-center gap-2"><img src="data:image/png;base64,{ig_b64}" class="w-3 h-3 mr-1"> @VesakCare</span><span class="flex items-center gap-2"><img src="data:image/png;base64,{fb_b64}" class="w-3 h-3 mr-1"> @VesakCare</span></div>
-                                        </div>
-                                        <div class="mt-4 w-full h-1 bg-vesak-navy"></div>
-                                    </footer>
-                                </div>
-                                <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'Invoice_{c_name}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
-                            </body>
-                            </html>
-                            """
-                            components.html(html_template, height=1000, scrolling=True)
+            # === TAB 2: FORCE NEW INVOICE ===
+            with tab2:
+                render_invoice_ui(df, df_history, mode="force_new")
 
             # === TAB 3: DUPLICATE INVOICE (REPRINT) ===
             with tab3:
@@ -1058,6 +1063,11 @@ if raw_file_obj:
                                 st.info("No active services found (All rows have End Dates).")
                 else:
                     st.info("History sheet is empty.")
+    else:
+        # Fallback if df is None
+        st.warning("⚠ Please upload a file or load from URL to view content.")
 
-        except Exception as e:
-                st.error(f"Error: {e}")
+    except Exception as e:
+        import traceback
+        st.error(f"Error: {e}")
+        st.code(traceback.format_exc())
