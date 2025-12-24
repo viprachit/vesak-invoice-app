@@ -1067,7 +1067,7 @@ if raw_file_obj:
                                 
                     st.info("History sheet is empty.")
                 
-                            else:                
+                                else:                
                                 # Fallback if df is None              
                                 st.warning("⚠ Please upload a file or load from URL to view content.")
 
@@ -1075,6 +1075,7 @@ if raw_file_obj:
         import traceback
         st.error(f"Error: {e}")
         st.code(traceback.format_exc())
+
 
 
 
