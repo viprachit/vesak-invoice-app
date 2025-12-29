@@ -305,14 +305,14 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         return False
 
 # --- UPDATE INVOICE (OVERWRITE - STEP 2) ---
-def update_invoice_in_gsheet(data_dict, sheet_obj):
+def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
     if sheet_obj is None: return False
     try:
         all_rows = sheet_obj.get_all_values()
         
-        # STEP 2 CRITICAL: Match "Serial No." (Col B) AND "Ref. No." (Col C) AND "INVOICE NO." (Col D)
+        # STEP 2 CRITICAL: Match "Serial No." (Col B) AND "Ref. No." (Col C) AND "Invoice No." (Col D)
         target_inv_search = str(original_inv_to_find).strip()
-		target_serial = str(data_dict.get("Serial No.", "")).strip()
+        target_serial = str(data_dict.get("Serial No.", "")).strip()
         target_ref = str(data_dict.get("Ref. No.", "")).strip()
         
         row_idx_to_update = None
@@ -320,13 +320,13 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
         
         for idx, row in enumerate(all_rows):
             if len(row) < 4: continue 
-            # Row index 0 is Col A, 1 is B, 2 is C and 3 is D
+            # Row index 0 is Col A, 1 is B, 2 is C, 3 is D
             sheet_serial = str(row[1]).strip()
             sheet_ref = str(row[2]).strip()
-			sheet_inv = str(row[3]).strip()
-
+            sheet_inv = str(row[3]).strip()
             
-            if sheet_inv == target_inv_search, sheet_serial == target_serial and sheet_ref == target_ref:
+            # STRICT MATCHING OF ALL 3
+            if sheet_inv == target_inv_search and sheet_serial == target_serial and sheet_ref == target_ref:
                 row_idx_to_update = idx + 1 
                 current_uid = str(row[0]).strip()
                 break
@@ -335,9 +335,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
             # Preserve UID if exists
             uid_to_save = current_uid if current_uid else data_dict.get("UID", "")
             
-            # Construct row with current data but preserve formulas if necessary
-            # For simplicity in overwrite, we update columns A through X as per instructions.
-            
+            # Construct row (update A through X)
             row_values = [
                 uid_to_save, 
                 data_dict.get("Serial No.", ""), 
@@ -370,7 +368,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj):
             get_history_data.clear()
             return True
         else:
-            st.error(f"❌ Critical Error: Could not find original row with Serial '{target_serial}', Ref '{target_ref}'.") AND Ref '{target_ref}'
+            st.error(f"❌ Critical Error: Could not find original row with Serial '{target_serial}', Ref '{target_ref}' and Invoice '{target_inv_search}'.")
             return False
     except Exception as e:
         st.error(f"Error updating Google Sheet: {e}")
@@ -892,8 +890,8 @@ def render_invoice_ui(df_main, df_history_data, mode="standard"):
         }
         
         if is_overwrite_action:
-            # STEP 2 CRITICAL: Match Serial & Ref to Overwrite
-            if update_invoice_in_gsheet(invoice_record, sheet_obj):
+            # STEP 2 CRITICAL: Match Serial & Ref & Invoice to Overwrite
+            if update_invoice_in_gsheet(invoice_record, sheet_obj, existing_inv_num):
                 st.success(f"✅ Invoice data for {c_name} OVERWRITTEN/UPDATED!")
                 success = True
                 st.rerun() 
@@ -1205,40 +1203,14 @@ if raw_file_obj:
                 df_hist_pay = get_history_data(sheet_obj)
                 
                 if not df_hist_pay.empty:
-                    # AC column is Index 28. Usually labelled "Nurse Payment" if we added headers, 
-                    # but if we just appended data, it might be unlabelled in pandas unless header row exists.
-                    # We assume header row exists or we access by column index if needed, 
-                    # but get_all_records uses first row as keys.
-                    # We injected AC as empty string in Step 3. 
-                    
-                    # Ensure columns exist in DataFrame
-                    required_cols = ['Invoice Number', 'Customer Name']
-                    # We need to find the column for Nurse Payment. Based on append, it's the 29th column (AC).
-                    # If df_hist was created from get_all_records, it uses headers.
-                    # We rely on the fact that the sheet MUST have headers.
-                    
-                    # NOTE: If headers for new columns don't exist in the sheet yet, get_all_records might fail or ignore them.
-                    # You might need to manually add "Nurse Payment" header to column AC in the sheet first.
-                    
-                    # Find column that might represent Nurse Payment or fallback to empty
-                    # For safety, let's list clients based on logic provided.
-                    
                     payment_mode = st.radio("Select View:", ["Option 1: Pending Payments (Blank)", "Option 2: Processed Payments (View/Edit)"])
-                    
-                    # Filter
-                    # We need to identify the Nurse Payment column. Let's assume it's named "Nurse Payment" 
-                    # or is the 29th column. 
-                    # If the column doesn't exist in DF, we assume all are blank.
-                    
-                    col_payment_name = "Nurse Payment" # Assumed header name
+                    col_payment_name = "Nurse Payment" 
                     has_pay_col = col_payment_name in df_hist_pay.columns
-                    
-                    payment_list = []
                     
                     if has_pay_col:
                         df_hist_pay[col_payment_name] = df_hist_pay[col_payment_name].astype(str).replace('nan', '').str.strip()
                     else:
-                        df_hist_pay[col_payment_name] = "" # Create virtual column if missing
+                        df_hist_pay[col_payment_name] = "" 
                         
                     if payment_mode == "Option 1: Pending Payments (Blank)":
                         filtered_pay = df_hist_pay[df_hist_pay[col_payment_name] == ""]
