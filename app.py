@@ -312,7 +312,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
         
         # STEP 2 CRITICAL: Match "Serial No." (Col B) AND "Ref. No." (Col C) AND "Invoice No." (Col D)
         target_inv_search = str(original_inv_to_find).strip()
-        target_serial = str(data_dict.get("Serial No.", "")).strip()
+        #target_serial = str(data_dict.get("Serial No.", "")).strip()
         target_ref = str(data_dict.get("Ref. No.", "")).strip()
         
         row_idx_to_update = None
@@ -1253,3 +1253,4 @@ if raw_file_obj:
 
 else:
     st.warning("⚠ Please upload a file or load from URL to view content.")
+
