@@ -534,6 +534,19 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
         st.error(f"Error updating Google Sheet: {e}")
         return False
 
+# --- UPDATE NURSE PAYMENT ---
+def update_nurse_payment(sheet_obj, invoice_number, payment_amount):
+    if sheet_obj is None: return False
+    try:
+        cell = sheet_obj.find(str(invoice_number).strip(), in_column=4) 
+        if cell:
+            sheet_obj.update_cell(cell.row, 29, payment_amount)
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error updating payment: {e}")
+        return False
+
 def mark_service_ended(sheet_obj, invoice_number, end_date):
     if sheet_obj is None: return False, "No Sheet"
     try:
@@ -1173,114 +1186,226 @@ if raw_file_obj:
             with tab3:
                 st.header("📄 Duplicate / Reprint Invoice")
                 # We need date input here too to know which workbook to look in for reprints
-                reprint_date = st.date_input("Select Invoice Date for Reprint:", value=datetime.date.today())
-                reprint_sheet_obj = get_active_sheet_client(drive_service, reprint_date)
+                st.info("Select a Date to load the corresponding Invoice Sheet.")
+                reprint_sheet_date = st.date_input("Load Sheet Date:", value=datetime.date.today(), key="rep_sheet_date")
+                
+                reprint_sheet_obj = get_active_sheet_client(drive_service, reprint_sheet_date)
                 df_history = get_history_data(reprint_sheet_obj)
                 
                 if not df_history.empty and 'Customer Name' in df_history.columns:
                     reprint_data = df_history[df_history['Invoice Number'].str.strip() != ""]
+                    
                     if not reprint_data.empty:
-                        reprint_data['ReprintDisplay'] = (
-                            reprint_data['Invoice Number'].astype(str) + " | " + 
-                            reprint_data['Customer Name'].astype(str) + " | " + 
-                            reprint_data['Date'].astype(str)
-                        )
-                        selected_reprint = st.selectbox("Select Invoice to Reprint:", [""] + reprint_data['ReprintDisplay'].tolist())
+                        # --- FILTERS IMPLEMENTATION ---
+                        with st.expander("🔎 Search & Filters", expanded=True):
+                            f_col1, f_col2, f_col3 = st.columns(3)
+                            
+                            # 1. Status Filter (Service Ended vs Active)
+                            with f_col1:
+                                status_filter = st.radio(
+                                    "Filter by Status:",
+                                    ["All", "Active (Service Ongoing)", "Service Ended"],
+                                    index=0,
+                                    key="status_filter_dup"
+                                )
+                            
+                            # 2. Location Filter
+                            with f_col2:
+                                unique_locs = sorted(reprint_data['Location'].astype(str).unique().tolist()) if 'Location' in reprint_data.columns else []
+                                loc_filter = st.multiselect("Filter by Location:", unique_locs, key="loc_filter_dup")
+                                
+                            # 3. Specific Date Filter
+                            with f_col3:
+                                enable_date_row_filter = st.checkbox("Filter by Specific Date", key="enable_date_row_dup")
+                                specific_date_filter = st.date_input("Select Date:", value=datetime.date.today(), key="spec_date_dup")
+
+                        # APPLY FILTERS
+                        filtered_df = reprint_data.copy()
                         
-                        if selected_reprint:
-                            inv_to_reprint = selected_reprint.split(" | ")[0].strip()
-                            row_data = reprint_data[reprint_data['Invoice Number'] == inv_to_reprint].iloc[0]
+                        # Apply Status Filter
+                        if 'Service Ended' in filtered_df.columns:
+                            if status_filter == "Active (Service Ongoing)":
+                                filtered_df = filtered_df[filtered_df['Service Ended'].astype(str).str.strip() == ""]
+                            elif status_filter == "Service Ended":
+                                filtered_df = filtered_df[filtered_df['Service Ended'].astype(str).str.strip() != ""]
+                        
+                        # Apply Location Filter
+                        if loc_filter and 'Location' in filtered_df.columns:
+                            filtered_df = filtered_df[filtered_df['Location'].astype(str).isin(loc_filter)]
                             
-                            c_name_rep = str(row_data.get('Customer Name', ''))
-                            inv_num_rep = str(row_data.get('Invoice Number', ''))
-                            fmt_date_rep = str(row_data.get('Date', ''))
-                            c_plan_rep = str(row_data.get('Plan', ''))
-                            c_ref_no_rep = str(row_data.get('Ref. No.', ''))
-                            
-                            st.divider()
-                            st.info(f"Generating Duplicate Documents for Invoice: {inv_to_reprint}")
+                        # Apply Date Filter
+                        if enable_date_row_filter and 'Date' in filtered_df.columns:
+                            # Convert sheet date column to object for comparison
+                            filtered_df['TempDate'] = pd.to_datetime(filtered_df['Date'], errors='coerce').dt.date
+                            filtered_df = filtered_df[filtered_df['TempDate'] == specific_date_filter]
 
-                            # STEP 4: 3 Buttons for Duplicate Tab
-                            d_col1, d_col2, d_col3 = st.columns(3)
+                        if not filtered_df.empty:
+                            filtered_df['ReprintDisplay'] = (
+                                filtered_df['Invoice Number'].astype(str) + " | " + 
+                                filtered_df['Customer Name'].astype(str) + " | " + 
+                                filtered_df['Date'].astype(str)
+                            )
+                            selected_reprint = st.selectbox("Select Invoice to Reprint:", [""] + filtered_df['ReprintDisplay'].tolist())
                             
-                            show_dup_inv = False
-                            show_dup_nurse = False
-                            show_dup_pat = False
-                            
-                            with d_col1:
-                                if st.button("Duplicate Invoice", key="dup_inv_btn"): show_dup_inv = True
-                            with d_col2:
-                                if st.button("Nurse Agreement", key="dup_nur_btn"): show_dup_nurse = True
-                            with d_col3:
-                                if st.button("Patient/Family Agreement", key="dup_pat_btn"): show_dup_pat = True
-                            
-                            # 1. GENERATE DUPLICATE INVOICE
-                            if show_dup_inv:
-                                c_gender_rep = str(row_data.get('Gender', ''))
-                                c_age_rep = str(row_data.get('Age', ''))
-                                c_mob_rep = str(row_data.get('Mobile', ''))
-                                c_addr_rep = str(row_data.get('Address', ''))
-                                desc_html_rep = f"""<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{str(row_data.get('Shift', ''))}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{str(row_data.get('Period', ''))}</div></div>"""
+                            if selected_reprint:
+                                inv_to_reprint = selected_reprint.split(" | ")[0].strip()
+                                row_data = filtered_df[filtered_df['Invoice Number'] == inv_to_reprint].iloc[0]
                                 
-                                try: amt_unit = float(row_data.get('Amount', 0))
-                                except: amt_unit = 0.0
-                                try: amt_paid = float(row_data.get('Amount Paid', 0))
-                                except: amt_paid = 0.0
+                                c_name_rep = str(row_data.get('Customer Name', ''))
+                                inv_num_rep = str(row_data.get('Invoice Number', ''))
+                                fmt_date_rep = str(row_data.get('Date', ''))
+                                c_plan_rep = str(row_data.get('Plan', ''))
+                                c_ref_no_rep = str(row_data.get('Ref. No.', ''))
                                 
-                                details_txt = str(row_data.get('Details', ''))
+                                st.divider()
+                                st.info(f"Generating Duplicate Documents for Invoice: {inv_to_reprint}")
 
-                                amount_html_rep = f"""
-                                <div style="text-align: right; font-size: 13px; color: #555;">
-                                    <div style="margin-bottom: 4px;">{str(row_data.get('Shift', ''))} / {str(row_data.get('Period', ''))} = <b>₹ {amt_unit:.0f}</b></div>
-                                    <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
-                                    <div style="font-weight: bold; font-size: 13px; margin: 2px 0; color: #333;">{details_txt}</div>
-                                    <div style="border-bottom: 1px solid #ccc; width: 100%; margin: 6px 0;"></div>
-                                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
-                                        <span style="font-size: 13px; font-weight: 800; color: #002147; text-transform: uppercase;">TOTAL - </span>
-                                        <span style="font-size: 16px; font-weight: bold; color: #000;">Rs. {amt_paid:.0f}</span>
-                                    </div>
-                                </div>
-                                """
-
-                                inc_rep_list, exc_rep_list = get_base_lists(c_plan_rep, "All")
-                                inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_rep_list])
-                                exc_html_rep = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_rep_list])
+                                # STEP 4: 3 Buttons for Duplicate Tab
+                                d_col1, d_col2, d_col3 = st.columns(3)
                                 
-                                notes_raw_rep = str(row_data.get('Notes / Remarks', ''))
-                                notes_sec_rep = ""
-                                if notes_raw_rep:
-                                    notes_sec_rep = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{notes_raw_rep}</p></div>"""
+                                show_dup_inv = False
+                                show_dup_nurse = False
+                                show_dup_pat = False
+                                
+                                with d_col1:
+                                    if st.button("Duplicate Invoice", key="dup_inv_btn"): show_dup_inv = True
+                                with d_col2:
+                                    if st.button("Nurse Agreement", key="dup_nur_btn"): show_dup_nurse = True
+                                with d_col3:
+                                    if st.button("Patient/Family Agreement", key="dup_pat_btn"): show_dup_pat = True
+                                
+                                # 1. GENERATE DUPLICATE INVOICE
+                                if show_dup_inv:
+                                    c_gender_rep = str(row_data.get('Gender', ''))
+                                    c_age_rep = str(row_data.get('Age', ''))
+                                    c_mob_rep = str(row_data.get('Mobile', ''))
+                                    c_addr_rep = str(row_data.get('Address', ''))
+                                    desc_html_rep = f"""<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{str(row_data.get('Shift', ''))}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{str(row_data.get('Period', ''))}</div></div>"""
+                                    
+                                    try: amt_unit = float(row_data.get('Amount', 0))
+                                    except: amt_unit = 0.0
+                                    try: amt_paid = float(row_data.get('Amount Paid', 0))
+                                    except: amt_paid = 0.0
+                                    
+                                    details_txt = str(row_data.get('Details', ''))
 
-                                html_rep = f"""
-                                    <!DOCTYPE html>
-                                    <html lang="en">
-                                    <head>
-                                        <meta charset="UTF-8">
-                                        <script src="https://cdn.tailwindcss.com"></script>
-                                        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-                                        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-                                        <script>tailwind.config = {{ theme: {{ extend: {{ colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }}, fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }} }} }} }}</script>
-                                        <style>@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap'); body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }} .invoice-page {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 40px; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column; }} .watermark-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; opacity: 0.03; pointer-events: none; z-index: 0; }} .watermark-text {{ font-family: 'Playfair Display', serif; font-size: 80px; font-weight: 700; color: #002147; letter-spacing: 0.3em; }} @media print {{ body {{ background: white; -webkit-print-color-adjust: exact; }} .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }} .no-print {{ display: none !important; }} .watermark-container {{ opacity: 0.015 !important; }} }}</style>
-                                    </head>
-                                    <body class="py-10">
-                                        <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4"><button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest"><i class="fas fa-download mr-2"></i> Download PDF</button></div>
-                                        <div class="invoice-page" id="invoice-content">
-                                            <div class="watermark-container"><img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.3;"><div class="watermark-text mt-4">VESAK</div></div>
-                                            <header class="relative z-10 w-full mb-10"><div class="flex justify-between items-start border-b border-gray-100 pb-6"><div class="flex items-center gap-5"><img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto"><div><h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">Vesak Care <span class="text-vesak-gold font-normal">Foundation</span></h1><div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5"><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span></div></div></div><div class="text-right"><span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span><div class="text-xs text-vesak-navy"><div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date_rep}</b></div><div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num_rep}</b></div></div></div></div></header>
-                                            <main class="flex-grow relative z-10">
-                                                <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy"><div class="w-1/2 p-4 border-r border-gray-200"><div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div><div class="text-lg font-bold text-vesak-navy">{c_name_rep}</div><div class="flex gap-4 mt-2 text-xs text-gray-600"><div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender_rep}</div><div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age_rep} Yrs</div></div></div><div class="w-1/2 p-4 flex flex-col justify-center"><div class="flex items-center gap-2 text-xs text-gray-600 mb-2"><i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob_rep}</div><div class="flex items-start gap-2 text-xs text-gray-600"><i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> <span class="leading-tight">{c_addr_rep}</span></div></div></div>
-                                                <table class="w-full mb-8"><thead><tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left"><th class="p-3 w-3/5">Description</th><th class="p-3 w-2/5 text-right">Amount</th></tr></thead><tbody><tr class="border-b border-gray-100"><td class="p-4 align-top"><div class="font-bold text-sm text-gray-800">{c_plan_rep}</div>{desc_html_rep}</td><td class="p-4 text-right font-bold text-sm text-gray-800 align-top">{amount_html_rep}</td></tr></tbody></table>
-                                                <div class="grid grid-cols-2 gap-8"><div><h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4><ul class="list-disc pl-4 space-y-1">{inc_html_rep}</ul></div><div><h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4><ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html_rep}</ul></div></div>
-                                                {notes_sec_rep}
-                                                <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">Thank you for choosing Vesak Care Foundation!</div>
-                                            </main>
-                                            <footer class="relative z-10 mt-auto w-full"><div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div><div class="flex justify-between items-end text-xs text-gray-500"><div><p class="font-serif italic text-vesak-navy">Caring with Compassion</p></div><div class="text-right"><p>Page 1 of 1</p></div></div></footer>
+                                    amount_html_rep = f"""
+                                    <div style="text-align: right; font-size: 13px; color: #555;">
+                                        <div style="margin-bottom: 4px;">{str(row_data.get('Shift', ''))} / {str(row_data.get('Period', ''))} = <b>₹ {amt_unit:.0f}</b></div>
+                                        <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
+                                        <div style="font-weight: bold; font-size: 13px; margin: 2px 0; color: #333;">{details_txt}</div>
+                                        <div style="border-bottom: 1px solid #ccc; width: 100%; margin: 6px 0;"></div>
+                                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                                            <span style="font-size: 13px; font-weight: 800; color: #002147; text-transform: uppercase;">TOTAL - </span>
+                                            <span style="font-size: 16px; font-weight: bold; color: #000;">Rs. {amt_paid:.0f}</span>
                                         </div>
-                                        <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'invoice.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
-                                    </body>
-                                    </html>
-                                """
-                                components.html(html_rep, height=800, scrolling=True)
+                                    </div>
+                                    """
+
+                                    inc_rep_list, exc_rep_list = get_base_lists(c_plan_rep, "All")
+                                    inc_html_rep = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_rep_list])
+                                    exc_html_rep = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_rep_list])
+                                    
+                                    notes_raw_rep = str(row_data.get('Notes / Remarks', ''))
+                                    notes_sec_rep = ""
+                                    if notes_raw_rep:
+                                        notes_sec_rep = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{notes_raw_rep}</p></div>"""
+
+                                    html_rep = f"""
+                                        <!DOCTYPE html>
+                                        <html lang="en">
+                                        <head>
+                                            <meta charset="UTF-8">
+                                            <script src="https://cdn.tailwindcss.com"></script>
+                                            <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+                                            <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+                                            <script>tailwind.config = {{ theme: {{ extend: {{ colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }}, fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }} }} }} }}</script>
+                                            <style>@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap'); body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }} .invoice-page {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 40px; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column; }} .watermark-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; opacity: 0.03; pointer-events: none; z-index: 0; }} .watermark-text {{ font-family: 'Playfair Display', serif; font-size: 80px; font-weight: 700; color: #002147; letter-spacing: 0.3em; }} @media print {{ body {{ background: white; -webkit-print-color-adjust: exact; }} .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }} .no-print {{ display: none !important; }} .watermark-container {{ opacity: 0.015 !important; }} }}</style>
+                                        </head>
+                                        <body class="py-10">
+                                            <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4"><button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest"><i class="fas fa-download mr-2"></i> Download PDF</button></div>
+                                            <div class="invoice-page" id="invoice-content">
+                                                <div class="watermark-container"><img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.3;"><div class="watermark-text mt-4">VESAK</div></div>
+                                                <header class="relative z-10 w-full mb-10"><div class="flex justify-between items-start border-b border-gray-100 pb-6"><div class="flex items-center gap-5"><img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto"><div><h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">Vesak Care <span class="text-vesak-gold font-normal">Foundation</span></h1><div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5"><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span><span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span></div></div></div><div class="text-right"><span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span><div class="text-xs text-vesak-navy"><div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date_rep}</b></div><div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num_rep}</b></div></div></div></div></header>
+                                                <main class="flex-grow relative z-10">
+                                                    <div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy"><div class="w-1/2 p-4 border-r border-gray-200"><div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div><div class="text-lg font-bold text-vesak-navy">{c_name_rep}</div><div class="flex gap-4 mt-2 text-xs text-gray-600"><div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender_rep}</div><div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age_rep} Yrs</div></div></div><div class="w-1/2 p-4 flex flex-col justify-center"><div class="flex items-center gap-2 text-xs text-gray-600 mb-2"><i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob_rep}</div><div class="flex items-start gap-2 text-xs text-gray-600"><i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> <span class="leading-tight">{c_addr_rep}</span></div></div></div>
+                                                    <table class="w-full mb-8"><thead><tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left"><th class="p-3 w-3/5">Description</th><th class="p-3 w-2/5 text-right">Amount</th></tr></thead><tbody><tr class="border-b border-gray-100"><td class="p-4 align-top"><div class="font-bold text-sm text-gray-800">{c_plan_rep}</div>{desc_html_rep}</td><td class="p-4 text-right font-bold text-sm text-gray-800 align-top">{amount_html_rep}</td></tr></tbody></table>
+                                                    <div class="grid grid-cols-2 gap-8"><div><h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4><ul class="list-disc pl-4 space-y-1">{inc_html_rep}</ul></div><div><h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4><ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html_rep}</ul></div></div>
+                                                    {notes_sec_rep}
+                                                    <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">Thank you for choosing Vesak Care Foundation!</div>
+                                                </main>
+                                                <footer class="relative z-10 mt-auto w-full"><div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div><div class="flex justify-between items-end text-xs text-gray-500"><div><p class="font-serif italic text-vesak-navy">Caring with Compassion</p></div><div class="text-right"><p>Page 1 of 1</p></div></div></footer>
+                                            </div>
+                                            <script>function generatePDF() {{ const element = document.getElementById('invoice-content'); const opt = {{ margin: 0, filename: 'invoice.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2, useCORS: true }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}; html2pdf().set(opt).from(element).save(); }}</script>
+                                        </body>
+                                        </html>
+                                    """
+                                    components.html(html_rep, height=800, scrolling=True)
+                    else:
+                        st.info("No data found in this sheet.")
+
+            # === TAB 5: NURSE PAYMENT ===
+            with tab5:
+                st.header("💰 Nurse Payment Update")
+                st.info("Select a Date to load the corresponding Invoice Sheet.")
+                pay_sheet_date = st.date_input("Load Sheet Date:", value=datetime.date.today(), key="pay_sheet_date")
+                
+                pay_sheet_obj = get_active_sheet_client(drive_service, pay_sheet_date)
+                df_pay_history = get_history_data(pay_sheet_obj)
+                
+                if not df_pay_history.empty and 'Customer Name' in df_pay_history.columns:
+                    # --- TAB 5 FILTERS ---
+                    with st.expander("🔎 Payment Filters", expanded=True):
+                        p_col1, p_col2 = st.columns(2)
+                        
+                        with p_col1:
+                            # 1. Date Filter
+                            enable_pay_date = st.checkbox("Filter by Date", key="pay_chk_date")
+                            pay_date_val = st.date_input("Select Date:", value=datetime.date.today(), key="pay_val_date")
+                        
+                        with p_col2:
+                            # 2. Location Filter
+                            u_locs_pay = sorted(df_pay_history['Location'].astype(str).unique().tolist()) if 'Location' in df_pay_history.columns else []
+                            pay_loc_vals = st.multiselect("Filter by Location", u_locs_pay, key="pay_loc_filter")
+
+                    # APPLY TAB 5 FILTERS
+                    df_pay_filtered = df_pay_history.copy()
+                    
+                    if enable_pay_date and 'Date' in df_pay_filtered.columns:
+                        df_pay_filtered['TempDate'] = pd.to_datetime(df_pay_filtered['Date'], errors='coerce').dt.date
+                        df_pay_filtered = df_pay_filtered[df_pay_filtered['TempDate'] == pay_date_val]
+                        
+                    if pay_loc_vals and 'Location' in df_pay_filtered.columns:
+                        df_pay_filtered = df_pay_filtered[df_pay_filtered['Location'].astype(str).isin(pay_loc_vals)]
+                    
+                    if not df_pay_filtered.empty:
+                        df_pay_filtered['Display'] = (
+                            df_pay_filtered['Invoice Number'].astype(str) + " | " + 
+                            df_pay_filtered['Customer Name'].astype(str) + " | " + 
+                            df_pay_filtered['Date'].astype(str)
+                        )
+                        
+                        selected_pay_inv = st.selectbox("Select Invoice to Update Payment:", [""] + df_pay_filtered['Display'].tolist())
+                        
+                        if selected_pay_inv:
+                            target_inv_num = selected_pay_inv.split(" | ")[0].strip()
+                            row_pay = df_pay_filtered[df_pay_filtered['Invoice Number'] == target_inv_num].iloc[0]
+                            
+                            st.write(f"**Customer:** {row_pay['Customer Name']}")
+                            st.write(f"**Amount Billed:** {row_pay['Amount Paid']}")
+                            
+                            nurse_pay_input = st.number_input("Enter Nurse Payment Amount:", min_value=0.0, step=100.0)
+                            
+                            if st.button("Update Payment"):
+                                if update_nurse_payment(pay_sheet_obj, target_inv_num, nurse_pay_input):
+                                    st.success(f"Payment updated for Invoice {target_inv_num}")
+                                    st.cache_data.clear()
+                                else:
+                                    st.error("Failed to update payment.")
+                    else:
+                        st.warning("No invoices found matching filters.")
+                else:
+                    st.info("No data found for this date.")
 
         except Exception as e:
             st.error(f"Error processing sheet: {e}")
