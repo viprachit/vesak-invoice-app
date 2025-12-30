@@ -130,9 +130,9 @@ def move_file_to_folder(service, file_id, folder_id):
 def manage_drive_folders(service, doc_type, date_obj):
     """
     Implements structure from Point 7:
-    "Vesak Agreements" (Root) -> "Nurse Agreement 26" Folder -> "Jan-26"
+    "Vesak Agreement" (Root) -> "Nurse Agreement 26" Folder -> "Jan-26"
     """
-    # 1. Root: Uses the ID provided for "Vesak Agreements" folder
+    # 1. Root: Uses the ID provided for "Vesak Agreement" folder
     root_id = AGREEMENTS_ROOT_ID
     
     # Formats
@@ -902,7 +902,7 @@ def render_invoice_ui(df_main, mode="standard"):
         if mode == "standard" and conflict_exists:
                  chk_overwrite = st.checkbox("Overwrite Invoice", key=f"chk_over_{mode}")
                  if chk_overwrite:
-                     st.markdown('[📂 Open Vesak Agreements Folder](https://drive.google.com/drive/folders/16QWhwkhWS4S5nRWkPuusJ9UjQzf-2TKl?usp=drive_link)')
+                     st.markdown('[📂 Open Vesak Agreement Folder](https://drive.google.com/drive/folders/16QWhwkhWS4S5nRWkPuusJ9UjQzf-2TKl?usp=drive_link)')
         
         is_disabled = True
         if mode == "standard" and chk_overwrite:
