@@ -193,34 +193,20 @@ def get_active_sheet_client(drive_service, date_obj):
                 # A) It doesn't exist -> We try to create it.
                 # B) It exists but User didn't share it -> We warn the user.
                 
-                st.warning(f"⚠️ Could not find '{wb_name}'. If you created it manually, please SHARE it with the Bot Email (see sidebar).")
-                st.info(f"ℹ️ Attempting to create '{wb_name}' automatically...")
+                # --- AUTO DETECT & WARN USER (User Request) ---
+                bot_email = get_bot_email()
+                st.warning(f"⚠️ **YEAR CHANGE DETECTED: {yy}**")
+                st.error(f"❌ The system cannot find the workbook: **{wb_name}**")
+                st.info("Since the Bot storage is full, you must create this file manually.")
                 
-                try:
-                    spreadsheet = client.create(wb_name)
-                    # Move to History Folder
-                    try:
-                        file = drive_service.files().get(fileId=spreadsheet.id, fields='parents').execute()
-                        prev_parents = ",".join(file.get('parents'))
-                        drive_service.files().update(
-                            fileId=spreadsheet.id,
-                            addParents=HISTORY_FOLDER_ID,
-                            removeParents=prev_parents
-                        ).execute()
-                        st.success(f"✅ Created new workbook: {wb_name}")
-                    except: pass
-                    
-                    # Add Headers
-                    try:
-                        sheet1 = spreadsheet.sheet1
-                        if not sheet1.get_all_values(): sheet1.append_row(SHEET_HEADERS)
-                    except: pass
-                    
-                except Exception as e:
-                    if "storage quota" in str(e).lower():
-                        st.error(f"🚨 STORAGE FULL: Cannot create '{wb_name}'. Clean up space or create file manually and SHARE with Bot.")
-                        return None
-                    raise e
+                st.markdown(f"""
+                **🛠️ Action Required:**
+                1. Go to Google Drive -> 'Vesak Invoice History' folder.
+                2. Create a new Google Sheet named: **`{wb_name}`**
+                3. Share this file with the Bot Email below (as Editor).
+                """)
+                st.code(bot_email, language="text")
+                st.stop() # Stop execution until user creates the file
 
         # 3. MONTH TAB AUTOMATION
         # Checks if "Feb-26" exists. If not, creates it automatically.
