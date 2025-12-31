@@ -32,6 +32,10 @@ URL_CONFIG_FILE = "url_config.txt"
 HISTORY_FOLDER_ID = "1e5iNxAwO8ly3_iAs2ONCyZO1CgQeFQhr"
 AGREEMENTS_ROOT_ID = "16QWhwkhWS4S5nRWkPuusJ9UjQzf-2TKl"
 
+# --- CRITICAL: HARDCODED SHEET ID FOR 2025 (User Provided) ---
+# This forces the app to use your existing file instead of creating a new one.
+MANUAL_SHEET_ID_25 = "1aBhZrgqtdD-bLE28Ujaq6lODou211wMnIIL8wxuPK5Q"
+
 # --- HEADERS FOR NEW SHEETS ---
 SHEET_HEADERS = [
     "UID", "Serial No.", "Ref. No.", "Invoice Number", "Date", "Generated At",
@@ -93,7 +97,6 @@ def get_drive_service():
 # --- DRIVE FOLDER LOGIC ---
 def get_or_create_folder(service, folder_name, parent_id=None):
     safe_name = folder_name.replace("'", "\\'")
-    # Try finding folder in parent first
     query = f"mimeType='application/vnd.google-apps.folder' and name='{safe_name}' and trashed=false"
     if parent_id:
         query += f" and '{parent_id}' in parents"
@@ -115,7 +118,6 @@ def get_or_create_folder(service, folder_name, parent_id=None):
             return file.get('id')
         except Exception as e:
             if "storage quota" in str(e).lower():
-                # Attempt to empty trash immediately if full
                 try: service.files().emptyTrash().execute()
                 except: pass
                 st.error("🚨 CRITICAL: Google Drive Storage is FULL. Cannot create folders.")
@@ -134,7 +136,6 @@ def manage_drive_folders(service, doc_type, date_obj):
     return month_id, f"Vesak Agreements/{cat_folder_name}/{mmm_yy}"
 
 def upload_to_drive(service, folder_id, file_name, file_content_bytes):
-    """Uploads bytes with Auto-Trash-Emptying."""
     file_metadata = {'name': file_name, 'parents': [folder_id]}
     media = MediaIoBaseUpload(BytesIO(file_content_bytes), mimetype='application/pdf')
     
@@ -142,7 +143,6 @@ def upload_to_drive(service, folder_id, file_name, file_content_bytes):
         file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         return file.get('id')
     except Exception as e:
-        # AUTO-CLEANUP ATTEMPT
         if "storage quota" in str(e).lower():
             st.warning("⚠️ Storage full. Attempting auto-cleanup...")
             try:
@@ -150,11 +150,11 @@ def upload_to_drive(service, folder_id, file_name, file_content_bytes):
                 file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
                 return file.get('id')
             except:
-                st.error("🚨 CRITICAL: Service Account Storage is FULL. Please delete old PDFs manually.")
+                st.error("🚨 CRITICAL: Service Account Storage is FULL. Please delete old PDFs manually using the sidebar.")
                 return None
         raise e
 
-# --- CRITICAL FIX: GLOBAL SEARCH FOR WORKBOOK ---
+# --- CRITICAL FIX: FORCE USE EXISTING SHEET ---
 def get_active_sheet_client(drive_service, date_obj):
     try:
         creds = get_credentials()
@@ -163,55 +163,51 @@ def get_active_sheet_client(drive_service, date_obj):
         
         yy = date_obj.strftime("%y") # 25
         mmm_yy = date_obj.strftime("%b-%y").capitalize() # Jan-25
-
         wb_name = f"Vesak_Invoice_{yy}"
-        safe_name = wb_name.replace("'", "\\'")
-        
-        # 1. Search Logic: First look inside History Folder
-        query_folder = f"mimeType='application/vnd.google-apps.spreadsheet' and name='{safe_name}' and '{HISTORY_FOLDER_ID}' in parents and trashed=false"
-        results = drive_service.files().list(q=query_folder, fields="files(id, name)").execute()
-        files = results.get('files', [])
-        
-        # 2. Search Logic: If not found, look GLOBALLY (Permission check)
-        if not files:
-            query_global = f"mimeType='application/vnd.google-apps.spreadsheet' and name='{safe_name}' and trashed=false"
-            results_global = drive_service.files().list(q=query_global, fields="files(id, name)").execute()
-            files = results_global.get('files', [])
         
         spreadsheet = None
-        
-        if files:
-            # File exists and bot can see it
-            wb_id = files[0]['id']
-            spreadsheet = client.open_by_key(wb_id)
-        else:
-            # File truly does not exist OR Bot cannot see it.
-            # Try to create it.
+
+        # STRATEGY 1: CHECK HARDCODED ID FIRST (For 2025)
+        if yy == "25" and MANUAL_SHEET_ID_25:
             try:
-                spreadsheet = client.create(wb_name)
-                # Attempt to move it to correct folder
-                try:
-                    file = drive_service.files().get(fileId=spreadsheet.id, fields='parents').execute()
-                    prev_parents = ",".join(file.get('parents'))
-                    drive_service.files().update(
-                        fileId=spreadsheet.id,
-                        addParents=HISTORY_FOLDER_ID,
-                        removeParents=prev_parents
-                    ).execute()
-                except: pass # Move failed, but file exists
-                
-                # Init header
-                try:
-                    sheet1 = spreadsheet.sheet1
-                    if not sheet1.get_all_values():
-                        sheet1.append_row(SHEET_HEADERS)
-                except: pass
+                spreadsheet = client.open_by_key(MANUAL_SHEET_ID_25)
+                # st.success("Opened via Hardcoded ID (Rescue Mode)") # Debug
             except Exception as e:
-                if "storage quota" in str(e).lower():
-                    st.error(f"🚨 STORAGE ERROR: The Bot cannot find '{wb_name}' and cannot create it because storage is full.")
-                    st.info(f"💡 FIX: Share your existing '{wb_name}' file with the Bot email found in your secrets.")
+                # If ID fails, it might be a permission issue
+                if "403" in str(e):
+                    st.error(f"🚨 PERMISSION ERROR: The Bot cannot open the file with ID {MANUAL_SHEET_ID_25}. You must Share it with the Bot's email.")
                     return None
-                raise e
+        
+        # STRATEGY 2: OPEN BY NAME (If Strategy 1 failed or wrong year)
+        if spreadsheet is None:
+            try:
+                spreadsheet = client.open(wb_name)
+            except gspread.exceptions.SpreadsheetNotFound:
+                # STRATEGY 3: CREATE (Only if completely missing)
+                # This block will likely fail if storage is full, but Strat 1 & 2 should catch your existing file.
+                try:
+                    spreadsheet = client.create(wb_name)
+                    # Attempt move
+                    try:
+                        file = drive_service.files().get(fileId=spreadsheet.id, fields='parents').execute()
+                        prev_parents = ",".join(file.get('parents'))
+                        drive_service.files().update(
+                            fileId=spreadsheet.id,
+                            addParents=HISTORY_FOLDER_ID,
+                            removeParents=prev_parents
+                        ).execute()
+                    except: pass
+                    
+                    try:
+                        sheet1 = spreadsheet.sheet1
+                        if not sheet1.get_all_values():
+                            sheet1.append_row(SHEET_HEADERS)
+                    except: pass
+                except Exception as e:
+                    if "storage quota" in str(e).lower():
+                        st.error(f"🚨 STORAGE ERROR: The Bot cannot create '{wb_name}'. Ensure you shared the EXISTING file with the bot.")
+                        return None
+                    raise e
 
         # Check/Create Monthly Tab
         try:
@@ -224,6 +220,7 @@ def get_active_sheet_client(drive_service, date_obj):
 
     except Exception as e:
         st.error(f"Google Sheet Error: {e}")
+        st.write(traceback.format_exc())
         return None
 
 # --- AUTO-DOWNLOAD ICONS ---
@@ -494,7 +491,7 @@ def mark_service_ended(sheet_obj, invoice_number, end_date):
     except Exception as e: return False, str(e)
 
 # ==========================================
-# 3. DATA LOGIC & LISTS (Shortened for brevity but intact logic)
+# 3. DATA LOGIC & LISTS
 # ==========================================
 SERVICES_MASTER = {
     "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
