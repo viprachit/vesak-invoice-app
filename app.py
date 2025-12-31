@@ -104,14 +104,19 @@ def get_or_create_folder(service, folder_name, parent_id=None):
     if files:
         return files[0]['id']
     else:
-        file_metadata = {
-            'name': folder_name,
-            'mimeType': 'application/vnd.google-apps.folder'
-        }
-        if parent_id:
-            file_metadata['parents'] = [parent_id]
-        file = service.files().create(body=file_metadata, fields='id').execute()
-        return file.get('id')
+        try:
+            file_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            if parent_id:
+                file_metadata['parents'] = [parent_id]
+            file = service.files().create(body=file_metadata, fields='id').execute()
+            return file.get('id')
+        except Exception as e:
+            if "storage quota" in str(e).lower():
+                st.error("🚨 CRITICAL: Google Drive Storage is FULL. Cannot create folders.")
+            raise e
 
 def move_file_to_folder(service, file_id, folder_id):
     """Moves a file from root (or current location) to a specific folder."""
@@ -157,8 +162,14 @@ def upload_to_drive(service, folder_id, file_name, file_content_bytes):
         'parents': [folder_id]
     }
     media = MediaIoBaseUpload(BytesIO(file_content_bytes), mimetype='application/pdf')
-    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    return file.get('id')
+    try:
+        file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        return file.get('id')
+    except Exception as e:
+        if "storage quota" in str(e).lower():
+            st.error("🚨 CRITICAL: Google Drive Storage is FULL. Cannot upload PDF.")
+            return None
+        raise e
 
 # --- CONNECT TO GOOGLE SHEETS ---
 def get_active_sheet_client(drive_service, date_obj):
@@ -185,13 +196,19 @@ def get_active_sheet_client(drive_service, date_obj):
             wb_id = files[0]['id']
             spreadsheet = client.open_by_key(wb_id)
         else:
-            spreadsheet = client.create(wb_name)
-            move_file_to_folder(drive_service, spreadsheet.id, HISTORY_FOLDER_ID)
             try:
-                sheet1 = spreadsheet.sheet1
-                if not sheet1.get_all_values():
-                    sheet1.append_row(SHEET_HEADERS)
-            except: pass
+                spreadsheet = client.create(wb_name)
+                move_file_to_folder(drive_service, spreadsheet.id, HISTORY_FOLDER_ID)
+                try:
+                    sheet1 = spreadsheet.sheet1
+                    if not sheet1.get_all_values():
+                        sheet1.append_row(SHEET_HEADERS)
+                except: pass
+            except Exception as e:
+                if "storage quota" in str(e).lower():
+                    st.error(f"🚨 CRITICAL ERROR: Google Drive Storage Full. Cannot create new workbook '{wb_name}'. Please clear space.")
+                    return None
+                raise e
 
         # Check for Monthly Sheet (Tab)
         try:
@@ -368,6 +385,32 @@ def get_active_invoice_record(df_hist, ref_no):
             return active_rows.iloc[-1]
     return None
 
+# --- SIDEBAR: MAINTENANCE TOOLS ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🤖 Bot Storage Manager")
+
+if drive_service:
+    try:
+        # Check Storage Quota
+        about = drive_service.about().get(fields="storageQuota").execute()
+        usage = int(about['storageQuota']['usage']) / (1024**3) # Convert to GB
+        limit = int(about['storageQuota']['limit']) / (1024**3) # Convert to GB
+        
+        st.sidebar.progress(min(usage/limit, 1.0))
+        st.sidebar.caption(f"Used: {usage:.2f} GB / {limit:.0f} GB")
+        
+        # Empty Trash Button
+        if st.sidebar.button("🗑️ Empty Bot Trash"):
+            try:
+                drive_service.files().emptyTrash().execute()
+                st.sidebar.success("Trash Emptied! Space reclaimed.")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Error: {e}")
+                
+    except Exception as e:
+        st.sidebar.error("Could not fetch storage info.")
+    
 def check_if_service_ended_history(df_hist, ref_no):
     if df_hist.empty: return False
     if 'Ref. No.' not in df_hist.columns: return False
@@ -524,7 +567,7 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
         st.error(f"Error updating Google Sheet: {e}")
         return False
 
-# --- UPDATE NURSE PAYMENT (UPDATED LOGIC) ---
+# --- UPDATE NURSE PAYMENT (CRITICAL FIX FOR FORMULAS & EXTRACTION) ---
 def update_nurse_payment(sheet_obj, invoice_number, payment_amount):
     if sheet_obj is None: return False
     try:
@@ -534,25 +577,28 @@ def update_nurse_payment(sheet_obj, invoice_number, payment_amount):
             row_idx = cell.row
             
             # 1. Fetch "Details" from Column V (Index 22)
+            # Note: gspread uses 1-based indexing for row/col access usually, but let's be safe.
+            # cell(row, col)
             details_val = sheet_obj.cell(row_idx, 22).value
             
             # 2. Extract Number from "Paid for X ..."
             qty = 1
             if details_val:
-                match = re.search(r'Paid for (\d+)', str(details_val))
+                match = re.search(r'Paid for\s*:?\s*(\d+)', str(details_val), re.IGNORECASE)
                 if match:
                     qty = int(match.group(1))
             
-            # 3. Update Column AD (Index 30) with Qty
-            sheet_obj.update_cell(row_idx, 30, qty)
-            
-            # 4. Update Column AC (Index 29) with Payment Amount
-            sheet_obj.update_cell(row_idx, 29, payment_amount)
-            
-            # 5. Update Column AE (Index 31) with Formula
-            # Formula: =AB{row}-(AC{row}*AD{row})
+            # 3. Construct the update formula for AE
             formula_earnings = f"=AB{row_idx}-(AC{row_idx}*AD{row_idx})"
-            sheet_obj.update_cell(row_idx, 31, formula_earnings)
+            
+            # 4. Perform Updates
+            # Updating Column AC (Nurse Payment) - Col 29
+            # Updating Column AD (Paid for / Qty) - Col 30
+            # Updating Column AE (Earnings Formula) - Col 31
+            
+            # Batch update is safer for formulas
+            range_notation = f"AC{row_idx}:AE{row_idx}"
+            sheet_obj.update(range_notation, [[payment_amount, qty, formula_earnings]], value_input_option='USER_ENTERED')
             
             return True
         return False
@@ -777,7 +823,22 @@ with st.sidebar:
 raw_file_obj = None
 if data_source == "Upload File":
     uploaded_file = st.sidebar.file_uploader("Upload Excel/CSV", type=['xlsx', 'csv'])
-    if uploaded_file: raw_file_obj = uploaded_file
+    if uploaded_file:
+        try:
+            # CHECK EXTENSION
+            if uploaded_file.name.endswith('.csv'):
+                 raw_file_obj = uploaded_file
+            else:
+                 # Check for openpyxl
+                 import importlib.util
+                 if importlib.util.find_spec("openpyxl") is None:
+                     st.sidebar.error("❌ Critical: 'openpyxl' library missing for .xlsx files.")
+                     st.sidebar.info("💡 Please save your file as .CSV and upload again.")
+                 else:
+                     raw_file_obj = uploaded_file
+        except:
+             raw_file_obj = uploaded_file
+
 elif data_source == "OneDrive Link":
     current_url = load_config_path(URL_CONFIG_FILE)
     url_input = st.sidebar.text_input("Paste OneDrive/Sharepoint Link:", value=current_url)
