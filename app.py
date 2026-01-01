@@ -733,6 +733,12 @@ with st.sidebar:
         run_system_health_check(drive_service, MANUAL_SHEET_ID_25, AGREEMENTS_ROOT_ID, INVOICES_ROOT_ID)
     # ---------------------------------------
 
+    # --- NEW: PDF ALIGNMENT CONTROL ---
+    st.markdown("---")
+    st.subheader("🖨️ PDF Settings")
+    pdf_top_margin = st.slider("Adjust Top Margin (px):", min_value=0, max_value=200, value=20, step=5, help("Move content down to align with letterhead."))
+    # ----------------------------------
+
     if drive_service: st.success("Connected to Google Drive ✅")
     else: st.error("❌ Not Connected to Google Drive")
     data_source = st.radio("Load Confirmed Sheet via:", ["Upload File", "OneDrive Link"])
@@ -882,7 +888,51 @@ def render_invoice_ui(df_main, mode="standard"):
             "Referral Code": str(in_ref_code), "Referral Name": str(in_ref_name), "Referral Credit": str(in_ref_credit)
         }
         
-        html_invoice = f"""<!DOCTYPE html><html><head><style>body {{ font-family: 'Lato', sans-serif; }} .page {{ padding: 40px; }} .header {{ text-align: center; }} </style></head><body><div class="page"><div class="header"><h2>INVOICE: {inv_num_input}</h2></div><p><strong>Customer:</strong> {c_name}</p><p><strong>Amount:</strong> {total_billed_amount}</p><p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p></div></body></html>"""
+        # --- CRITICAL FIX: A4 SIZE DEFINITION + MARGIN CONTROL ---
+        html_invoice = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                @page {{
+                    size: a4 portrait;
+                    margin: 1cm; 
+                    @frame footer_frame {{           /* Static Footer */
+                        -pdf-frame-content: footerContent;
+                        bottom: 0cm;
+                        margin-left: 1cm;
+                        margin-right: 1cm;
+                        height: 1cm;
+                    }}
+                }}
+                body {{ font-family: 'Helvetica', sans-serif; }}
+                .page-content {{
+                    padding-top: {pdf_top_margin}px; /* USER CONTROLLED MARGIN */
+                }}
+                .header {{ text-align: center; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                td, th {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
+            </style>
+        </head>
+        <body>
+            <div class="page-content">
+                <div class="header"><h2>INVOICE: {inv_num_input}</h2></div>
+                <p><strong>Customer:</strong> {c_name}</p>
+                <p><strong>Mobile:</strong> {c_mob}</p>
+                <hr>
+                <p><strong>Details:</strong> {details_text}</p>
+                <p><strong>Total Amount:</strong> ₹{total_billed_amount}</p>
+                <p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p>
+                <br>
+                <p><em>Notes: {final_notes}</em></p>
+            </div>
+            
+            <div id="footerContent">
+                {format_date_with_suffix(global_inv_date)} | Page <pdf:pagenumber>
+            </div>
+        </body>
+        </html>
+        """
         inv_pdf_bytes = convert_html_to_pdf(html_invoice)
 
         save_success = False
@@ -922,7 +972,55 @@ def render_invoice_ui(df_main, mode="standard"):
     if btn_nurse or btn_patient:
         doc_type = "Nurse" if btn_nurse else "Patient"
         display_type = "NURSE AGREEMENT" if btn_nurse else "PATIENT AGREEMENT"
-        html_agreement = f"""<!DOCTYPE html><html><head><style>body {{ font-family: 'Lato', sans-serif; }} .page {{ position: relative; padding: 40px; }} .watermark {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 100px; color: #002147; opacity: 0.1; font-weight: bold; z-index: -1; }} .header {{ text-align: center; margin-bottom: 30px; }} .title {{ font-size: 24px; font-weight: bold; text-decoration: underline; color: #002147; }} .content {{ font-size: 14px; line-height: 1.6; text-align: justify; }}</style></head><body><div class="watermark">VESAK</div><div class="page"><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><div class="title">{display_type}</div><br><div class="content"><p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p><p><strong>Ref No:</strong> {c_ref_no}</p><p><strong>Client Name:</strong> {c_name}</p><br><p>This is a placeholder for the {display_type.title()}. Content will be updated later.</p><p>__________________________<br>Authorized Signatory</p></div></div></body></html>"""
+        
+        # --- FIXED AGREEMENT PDF LOGIC (MARGIN CONTROL) ---
+        html_agreement = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                @page {{
+                    size: a4 portrait;
+                    margin: 1cm;
+                }}
+                body {{ font-family: 'Helvetica', sans-serif; }}
+                .page-content {{
+                    padding-top: {pdf_top_margin}px; /* USER CONTROLLED MARGIN */
+                    position: relative;
+                }}
+                .watermark {{
+                    position: fixed; top: 50%; left: 50%; 
+                    transform: translate(-50%, -50%); 
+                    font-size: 100px; color: #002147; opacity: 0.1; 
+                    font-weight: bold; z-index: -1;
+                }}
+                .header {{ text-align: center; margin-bottom: 30px; }}
+                .title {{ font-size: 24px; font-weight: bold; text-decoration: underline; color: #002147; }}
+                .content {{ font-size: 14px; line-height: 1.6; text-align: justify; }}
+            </style>
+        </head>
+        <body>
+            <div class="watermark">VESAK</div>
+            <div class="page-content">
+                <div class="header">
+                    <img src="data:image/png;base64,{logo_b64}" width="100">
+                    <h2>Vesak Care Foundation</h2>
+                </div>
+                <div class="title">{display_type}</div>
+                <br>
+                <div class="content">
+                    <p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p>
+                    <p><strong>Ref No:</strong> {c_ref_no}</p>
+                    <p><strong>Client Name:</strong> {c_name}</p>
+                    <br>
+                    <p>This is a placeholder for the {display_type.title()}. Content will be updated later.</p>
+                    <br><br><br>
+                    <p>__________________________<br>Authorized Signatory</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
         pdf_bytes = convert_html_to_pdf(html_agreement)
         
         if pdf_bytes:
