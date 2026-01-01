@@ -97,56 +97,148 @@ def get_drive_service():
 # CRITICAL UPDATE: FOLDER & FILE LOGIC
 # ==========================================
 
+# [RESTORED] ROBUST DOWNLOADER V3 - SESSION BASED
+@st.cache_data(show_spinner=False)
+def robust_file_downloader(url):
+    """
+    Downloads file using a session to persist cookies through redirects.
+    This fixes 403 errors on public OneDrive links.
+    """
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.google.com/'
+    })
+
+    download_url = url
+    
+    # 1. Clean the URL (Remove existing parameters)
+    if "?" in url:
+        base_url = url.split("?")[0]
+    else:
+        base_url = url
+
+    # 2. Append download command
+    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
+        download_url = base_url + "?download=1"
+    
+    try:
+        # Attempt download
+        response = session.get(download_url, verify=False, allow_redirects=True)
+        
+        # Check if successful
+        if response.status_code == 200:
+            # Verify we got a file (Excel/CSV usually) and not a HTML login page
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'text/html' in content_type and len(response.content) < 5000:
+                # If we got a small HTML page, it might be a login redirect.
+                # Try the original URL without modification as a last resort
+                response = session.get(url, verify=False, allow_redirects=True)
+            
+            return BytesIO(response.content)
+            
+        raise Exception(f"Status Code: {response.status_code}")
+        
+    except Exception as e:
+        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
+
 def get_or_create_folder(service, folder_name, parent_id=None):
-    """Robust function to check if folder exists, if not create it."""
+    """
+    Robust function to check if folder exists, if not create it.
+    Includes double-check logic to prevent storage errors.
+    """
     safe_name = folder_name.replace("'", "\\'")
     query = f"mimeType='application/vnd.google-apps.folder' and name='{safe_name}' and trashed=false"
     if parent_id:
         query += f" and '{parent_id}' in parents"
     
     try:
+        # 1. Check if exists
         results = service.files().list(q=query, fields="files(id, name)").execute()
         files = results.get('files', [])
-        if files: return files[0]['id']
+        if files:
+            return files[0]['id'] # Return existing ID
         
-        file_metadata = {'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}
-        if parent_id: file_metadata['parents'] = [parent_id]
+        # 2. If not, create it
+        file_metadata = {
+            'name': folder_name, 
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        if parent_id:
+            file_metadata['parents'] = [parent_id]
             
         file = service.files().create(body=file_metadata, fields='id').execute()
         return file.get('id')
+        
     except Exception as e:
+        # 3. Fallback: If creation fails (e.g. storage error latency), check existence one last time
         try:
             results = service.files().list(q=query, fields="files(id, name)").execute()
             files = results.get('files', [])
             if files: return files[0]['id']
-        except: pass
-        st.error(f"CRITICAL ERROR: Could not create folder '{folder_name}'. Error: {e}")
+        except:
+            pass
+        # WARNING: STORAGE FULL OR PERMISSION ISSUE
+        st.error(f"CRITICAL ERROR: Could not create folder '{folder_name}'.")
+        st.warning(f"⚠️ PLEASE MANUALLY CREATE THE FOLDER: '{folder_name}' in Google Drive immediately.")
         raise e
 
 def get_target_folder_hierarchy(service, doc_type, date_obj):
+    """
+    Handles the Specific Folder Structures.
+    Step 1-5 Logic Implementation.
+    """
     yy = date_obj.strftime("%y") 
-    mmm_yy = date_obj.strftime("%b-%y")
-    if mmm_yy.startswith("Jan") and mmm_yy[3] != '-': mmm_yy = date_obj.strftime("%b-%y")
+    mmm_yy = date_obj.strftime("%b-%y") # e.g., Jan-26
+    
+    if mmm_yy.startswith("Jan") and mmm_yy[3] != '-': 
+        mmm_yy = date_obj.strftime("%b-%y")
 
     # DEFINE PATHS BASED ON DOC TYPE
+    root_id = None
+    level2_name = ""
+    
     if doc_type == "Invoice":
-        if INVOICES_ROOT_ID: root_id = INVOICES_ROOT_ID
-        else: root_id = get_or_create_folder(service, "Vesak Invoices")
-        year_id = get_or_create_folder(service, f"Invoice-{yy}", parent_id=root_id)
-        return get_or_create_folder(service, mmm_yy, parent_id=year_id)
+        if INVOICES_ROOT_ID:
+            root_id = INVOICES_ROOT_ID
+        else:
+            # Fallback: Find "Vesak Invoices" in Root
+            try:
+                root_id = get_or_create_folder(service, "Vesak Invoices")
+            except:
+                st.warning("⚠️ Could not find 'Vesak Invoices' folder. Please create it manually.")
+                return None
+        level2_name = f"Invoice-{yy}"
 
     elif doc_type == "Nurse":
         root_id = AGREEMENTS_ROOT_ID
-        year_id = get_or_create_folder(service, f"Nurse Agreement {yy}", parent_id=root_id)
-        return get_or_create_folder(service, mmm_yy, parent_id=year_id)
+        level2_name = f"Nurse Agreement {yy}"
 
     elif doc_type == "Patient":
         root_id = AGREEMENTS_ROOT_ID
-        year_id = get_or_create_folder(service, f"Patient Agreement {yy}", parent_id=root_id)
-        return get_or_create_folder(service, mmm_yy, parent_id=year_id)
+        level2_name = f"Patient Agreement {yy}"
+
+    # --- EXECUTE 5-STEP ROBUST LOGIC ---
+    if root_id:
+        try:
+            # Level 2 (Yearly)
+            year_id = get_or_create_folder(service, level2_name, parent_id=root_id)
+            
+            # Level 3 (Monthly)
+            month_id = get_or_create_folder(service, mmm_yy, parent_id=year_id)
+            
+            return month_id
+        except Exception as e:
+            st.error(f"❌ Critical Storage/Permission Error: {e}")
+            st.info(f"ℹ️ Action Required: Please go to Google Drive > '{doc_type}' Folders and manually create folder: '{level2_name}' and inside it '{mmm_yy}'.")
+            return None
+            
     return None
 
 def find_file_in_folder(service, folder_id, file_name):
+    """Searches for a specific file by name in a specific folder."""
     try:
         query = f"name = '{file_name}' and '{folder_id}' in parents and trashed = false"
         results = service.files().list(q=query, fields="files(id, name)").execute()
@@ -156,6 +248,7 @@ def find_file_in_folder(service, folder_id, file_name):
     except: return None
 
 def update_drive_file(service, file_id, file_content_bytes):
+    """Overwrites existing file content."""
     try:
         media = MediaIoBaseUpload(BytesIO(file_content_bytes), mimetype='application/pdf')
         service.files().update(fileId=file_id, media_body=media).execute()
@@ -179,10 +272,19 @@ def upload_to_drive(service, folder_id, file_name, file_content_bytes):
         return None
 
 def generate_filename(doc_type, invoice_no, customer_name):
-    prefix_map = {"Invoice": "IN", "Nurse": "NU", "Patient": "PA"}
+    # Prefix mapping
+    prefix_map = {
+        "Invoice": "IN",
+        "Nurse": "NU",
+        "Patient": "PA"
+    }
     prefix = prefix_map.get(doc_type, "DOC")
+    
+    # Clean Customer Name (Remove special chars, uppercase)
     clean_name = re.sub(r'[^a-zA-Z0-9]', '-', str(customer_name)).upper()
-    clean_name = re.sub(r'-+', '-', clean_name).strip('-') 
+    clean_name = re.sub(r'-+', '-', clean_name).strip('-') # Remove duplicate dashes
+    
+    # Construct: PRE-INVNO-NAME
     return f"{prefix}-{invoice_no}-{clean_name}.pdf"
 
 # ==========================================
@@ -191,23 +293,68 @@ def generate_filename(doc_type, invoice_no, customer_name):
 
 def format_worksheet_header(ws):
     try:
+        # 1. Format Header Row (A1:AE1) - Light Green #93c47d
         ws.format("A1:AE1", {
             "backgroundColor": {"red": 0.576, "green": 0.768, "blue": 0.49},
             "textFormat": {
                 "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
-                "bold": True, "fontSize": 10
+                "bold": True,
+                "fontSize": 10
             },
-            "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE", "wrapStrategy": "WRAP"
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "wrapStrategy": "WRAP"
         })
+
+        # 2. Format "Service Ended" Column (X2 down to X1000) - Red #ea9999
         ws.format("X2:X1000", {
              "backgroundColor": {"red": 0.917, "green": 0.6, "blue": 0.6},
              "textFormat": {"foregroundColor": {"red": 0.0, "green": 0.0, "blue": 0.0}, "bold": False}
         })
+
         ws.freeze(rows=1)
-        widths = [50, 50, 100, 120, 100, 120, 180, 50, 60, 100, 200, 100, 120, 100, 80, 80, 60, 80, 150, 100, 100, 200, 100, 100, 100, 120, 80, 100, 100, 80, 100]
+
+        # 3. Explicit Column Widths for all 31 Columns (0 to 30)
+        widths = [
+            50,  # 0: A - UID
+            50,  # 1: B - Serial No.
+            100, # 2: C - Ref. No.
+            120, # 3: D - Invoice Number
+            100, # 4: E - Date
+            120, # 5: F - Generated At
+            180, # 6: G - Customer Name
+            50,  # 7: H - Age
+            60,  # 8: I - Gender
+            100, # 9: J - Location
+            200, # 10: K - Address
+            100, # 11: L - Mobile
+            120, # 12: M - Plan
+            100, # 13: N - Shift
+            80,  # 14: O - Recurring Service
+            80,  # 15: P - Period
+            60,  # 16: Q - Visits
+            80,  # 17: R - Amount
+            150, # 18: S - Notes / Remarks
+            100, # 19: T - Generated By
+            100, # 20: U - Amount Paid
+            200, # 21: V - Details
+            100, # 22: W - Service Started
+            100, # 23: X - Service Ended (Red Column)
+            100, # 24: Y - Referral Code
+            120, # 25: Z - Referral Name
+            80,  # 26: AA - Referral Credit
+            100, # 27: AB - Net Amount
+            100, # 28: AC - Nurse Payment
+            80,  # 29: AD - Paid for
+            100  # 30: AE - Earnings
+        ]
+
+        # Apply widths loop
         for i, width in enumerate(widths):
             ws.set_column_width(i, width)
-    except Exception as e: print(f"Formatting warning: {e}")
+
+    except Exception as e:
+        print(f"Formatting warning: {e}")
 
 # --- SMART SHEET CONNECTION ---
 def get_active_sheet_client(drive_service, date_obj):
@@ -314,53 +461,6 @@ def load_config_path(file_name):
 def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
-
-# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
-@st.cache_data(show_spinner=False)
-def robust_file_downloader(url):
-    """
-    Downloads file using a session to persist cookies through redirects.
-    This fixes 403 errors and HTML preview pages on public OneDrive links.
-    """
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': 'https://www.google.com/'
-    })
-
-    download_url = url
-    
-    # 1. Clean the URL (Remove existing parameters)
-    if "?" in url:
-        base_url = url.split("?")[0]
-    else:
-        base_url = url
-
-    # 2. Append download command
-    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
-        download_url = base_url + "?download=1"
-    
-    try:
-        # Attempt download
-        response = session.get(download_url, verify=False, allow_redirects=True)
-        
-        # Check if successful
-        if response.status_code == 200:
-            # Verify we got a file (Excel/CSV usually) and not a HTML login page
-            content_type = response.headers.get('Content-Type', '').lower()
-            if 'text/html' in content_type and len(response.content) < 5000:
-                # If we got a small HTML page, it might be a login redirect.
-                # Try the original URL without modification as a last resort
-                response = session.get(url, verify=False, allow_redirects=True)
-            
-            return BytesIO(response.content)
-            
-        raise Exception(f"Status Code: {response.status_code}")
-        
-    except Exception as e:
-        raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
 # --- DATABASE HELPERS ---
 def get_next_invoice_number_gsheet(date_obj, df_hist, location_str):
@@ -756,18 +856,19 @@ def render_invoice_ui(df_main, mode="standard"):
 
         if save_success and inv_pdf_bytes and drive_service:
             inv_folder_id = get_target_folder_hierarchy(drive_service, "Invoice", global_inv_date)
-            inv_file_name = generate_filename("Invoice", inv_num_input, c_name)
-            existing_inv_id = find_file_in_folder(drive_service, inv_folder_id, inv_file_name)
-            
-            if existing_inv_id:
-                if btn_over_clicked:
-                    update_drive_file(drive_service, existing_inv_id, inv_pdf_bytes)
-                    st.success(f"✅ Invoice PDF Overwritten: {inv_file_name}")
+            if inv_folder_id: # Only proceed if folder exists/created successfully
+                inv_file_name = generate_filename("Invoice", inv_num_input, c_name)
+                existing_inv_id = find_file_in_folder(drive_service, inv_folder_id, inv_file_name)
+                
+                if existing_inv_id:
+                    if btn_over_clicked:
+                        update_drive_file(drive_service, existing_inv_id, inv_pdf_bytes)
+                        st.success(f"✅ Invoice PDF Overwritten: {inv_file_name}")
+                    else:
+                        st.warning(f"⚠️ Invoice PDF exists. Skipping upload: {inv_file_name}")
                 else:
-                    st.warning(f"⚠️ Invoice PDF exists. Skipping upload: {inv_file_name}")
-            else:
-                upload_to_drive(drive_service, inv_folder_id, inv_file_name, inv_pdf_bytes)
-                st.success(f"✅ Invoice PDF Saved: {inv_file_name}")
+                    upload_to_drive(drive_service, inv_folder_id, inv_file_name, inv_pdf_bytes)
+                    st.success(f"✅ Invoice PDF Saved: {inv_file_name}")
         if save_success: st.rerun()
 
     if btn_nurse or btn_patient:
@@ -777,22 +878,22 @@ def render_invoice_ui(df_main, mode="standard"):
         pdf_bytes = convert_html_to_pdf(html_agreement)
         if pdf_bytes and drive_service:
             folder_id = get_target_folder_hierarchy(drive_service, doc_type, global_inv_date)
-            file_name = generate_filename(doc_type, inv_num_input, c_name)
-            existing_file_id = find_file_in_folder(drive_service, folder_id, file_name)
-            if existing_file_id:
-                 if conflict_exists and chk_overwrite:
-                    if update_drive_file(drive_service, existing_file_id, pdf_bytes): st.success(f"✅ Overwritten: {file_name}")
-                    else: st.error("Failed to overwrite file.")
-                 else: st.warning(f"⚠️ File exists. Use 'Overwrite'.")
-            else:
-                 if upload_to_drive(drive_service, folder_id, file_name, pdf_bytes): st.success(f"✅ Saved Agreement: {file_name}")
+            if folder_id: # Only proceed if folder exists/created successfully
+                file_name = generate_filename(doc_type, inv_num_input, c_name)
+                existing_file_id = find_file_in_folder(drive_service, folder_id, file_name)
+                if existing_file_id:
+                     if conflict_exists and chk_overwrite:
+                        if update_drive_file(drive_service, existing_file_id, pdf_bytes): st.success(f"✅ Overwritten: {file_name}")
+                        else: st.error("Failed to overwrite file.")
+                     else: st.warning(f"⚠️ File exists. Use 'Overwrite'.")
+                else:
+                     if upload_to_drive(drive_service, folder_id, file_name, pdf_bytes): st.success(f"✅ Saved Agreement: {file_name}")
 
 if raw_file_obj:
     try:
         if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
         
         # --- FIXED FILE READING LOGIC ---
-        # 1. Identify if it looks like an Excel file (either by name or robust downloader source)
         is_excel = False
         if hasattr(raw_file_obj, 'name') and raw_file_obj.name.endswith('.xlsx'):
             is_excel = True
