@@ -37,6 +37,7 @@ AGREEMENTS_ROOT_ID = "16QWhwkhWS4S5nRWkPuusJ9UjQzf-2TKl"
 INVOICES_ROOT_ID = "" 
 
 # --- CRITICAL: HARDCODED SHEET ID FOR 2025 ---
+# Kept as fallback for 2025 specific logic
 MANUAL_SHEET_ID_25 = "1aBhZrgqtdD-bLE28Ujaq6lODou211wMnIIL8wxuPK5Q"
 
 # --- HEADERS (31 COLUMNS) ---
@@ -97,7 +98,6 @@ def get_drive_service():
 # CRITICAL UPDATE: FOLDER & FILE LOGIC
 # ==========================================
 
-# [RESTORED] ROBUST DOWNLOADER V3 - SESSION BASED
 @st.cache_data(show_spinner=False)
 def robust_file_downloader(url):
     """
@@ -130,11 +130,8 @@ def robust_file_downloader(url):
         
         # Check if successful
         if response.status_code == 200:
-            # Verify we got a file (Excel/CSV usually) and not a HTML login page
             content_type = response.headers.get('Content-Type', '').lower()
             if 'text/html' in content_type and len(response.content) < 5000:
-                # If we got a small HTML page, it might be a login redirect.
-                # Try the original URL without modification as a last resort
                 response = session.get(url, verify=False, allow_redirects=True)
             
             return BytesIO(response.content)
@@ -145,10 +142,6 @@ def robust_file_downloader(url):
         raise Exception(f"Download failed: {e}. Ensure the OneDrive link is set to 'Anyone with the link'.")
 
 def get_or_create_folder(service, folder_name, parent_id=None):
-    """
-    Robust function to check if folder exists, if not create it.
-    Includes double-check logic to prevent storage errors.
-    """
     safe_name = folder_name.replace("'", "\\'")
     query = f"mimeType='application/vnd.google-apps.folder' and name='{safe_name}' and trashed=false"
     if parent_id:
@@ -159,7 +152,7 @@ def get_or_create_folder(service, folder_name, parent_id=None):
         results = service.files().list(q=query, fields="files(id, name)").execute()
         files = results.get('files', [])
         if files:
-            return files[0]['id'] # Return existing ID
+            return files[0]['id'] 
         
         # 2. If not, create it
         file_metadata = {
@@ -173,23 +166,17 @@ def get_or_create_folder(service, folder_name, parent_id=None):
         return file.get('id')
         
     except Exception as e:
-        # 3. Fallback: If creation fails (e.g. storage error latency), check existence one last time
         try:
             results = service.files().list(q=query, fields="files(id, name)").execute()
             files = results.get('files', [])
             if files: return files[0]['id']
         except:
             pass
-        # WARNING: STORAGE FULL OR PERMISSION ISSUE - Step 5 Logic
         st.error(f"CRITICAL ERROR: Could not create folder '{folder_name}'.")
         st.warning(f"⚠️ PLEASE MANUALLY CREATE THE FOLDER: '{folder_name}' in Google Drive immediately.")
         raise e
 
 def get_target_folder_hierarchy(service, doc_type, date_obj):
-    """
-    Handles the Specific Folder Structures.
-    Step 1-5 Logic Implementation.
-    """
     yy = date_obj.strftime("%y") 
     mmm_yy = date_obj.strftime("%b-%y") # e.g., Jan-26
     
@@ -230,7 +217,6 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
             
             return month_id
         except Exception as e:
-            # Step 5: Warn user explicitly
             st.error(f"❌ Critical Storage/Permission Error: {e}")
             st.info(f"ℹ️ Action Required: Please go to Google Drive > '{doc_type}' Folders and manually create folder: '{level2_name}' and inside it '{mmm_yy}'.")
             return None
@@ -238,7 +224,6 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
     return None
 
 def find_file_in_folder(service, folder_id, file_name):
-    """Searches for a specific file by name in a specific folder."""
     try:
         query = f"name = '{file_name}' and '{folder_id}' in parents and trashed = false"
         results = service.files().list(q=query, fields="files(id, name)").execute()
@@ -248,7 +233,6 @@ def find_file_in_folder(service, folder_id, file_name):
     except: return None
 
 def update_drive_file(service, file_id, file_content_bytes):
-    """Overwrites existing file content."""
     try:
         media = MediaIoBaseUpload(BytesIO(file_content_bytes), mimetype='application/pdf')
         service.files().update(fileId=file_id, media_body=media).execute()
@@ -272,19 +256,10 @@ def upload_to_drive(service, folder_id, file_name, file_content_bytes):
         return None
 
 def generate_filename(doc_type, invoice_no, customer_name):
-    # Prefix mapping
-    prefix_map = {
-        "Invoice": "IN",
-        "Nurse": "NU",
-        "Patient": "PA"
-    }
+    prefix_map = { "Invoice": "IN", "Nurse": "NU", "Patient": "PA" }
     prefix = prefix_map.get(doc_type, "DOC")
-    
-    # Clean Customer Name (Remove special chars, uppercase)
     clean_name = re.sub(r'[^a-zA-Z0-9]', '-', str(customer_name)).upper()
-    clean_name = re.sub(r'-+', '-', clean_name).strip('-') # Remove duplicate dashes
-    
-    # Construct: PRE-INVNO-NAME
+    clean_name = re.sub(r'-+', '-', clean_name).strip('-') 
     return f"{prefix}-{invoice_no}-{clean_name}.pdf"
 
 # ==========================================
@@ -293,7 +268,6 @@ def generate_filename(doc_type, invoice_no, customer_name):
 
 def format_worksheet_header(ws):
     try:
-        # 1. Format Header Row (A1:AE1) - Light Green #93c47d
         ws.format("A1:AE1", {
             "backgroundColor": {"red": 0.576, "green": 0.768, "blue": 0.49},
             "textFormat": {
@@ -305,54 +279,14 @@ def format_worksheet_header(ws):
             "verticalAlignment": "MIDDLE",
             "wrapStrategy": "WRAP"
         })
-
-        # 2. Format "Service Ended" Column (X2 down to X1000) - Red #ea9999
         ws.format("X2:X1000", {
              "backgroundColor": {"red": 0.917, "green": 0.6, "blue": 0.6},
              "textFormat": {"foregroundColor": {"red": 0.0, "green": 0.0, "blue": 0.0}, "bold": False}
         })
-
         ws.freeze(rows=1)
-
-        # 3. Explicit Column Widths for all 31 Columns (0 to 30)
-        widths = [
-            50,  # 0: A - UID
-            50,  # 1: B - Serial No.
-            100, # 2: C - Ref. No.
-            120, # 3: D - Invoice Number
-            100, # 4: E - Date
-            120, # 5: F - Generated At
-            180, # 6: G - Customer Name
-            50,  # 7: H - Age
-            60,  # 8: I - Gender
-            100, # 9: J - Location
-            200, # 10: K - Address
-            100, # 11: L - Mobile
-            120, # 12: M - Plan
-            100, # 13: N - Shift
-            80,  # 14: O - Recurring Service
-            80,  # 15: P - Period
-            60,  # 16: Q - Visits
-            80,  # 17: R - Amount
-            150, # 18: S - Notes / Remarks
-            100, # 19: T - Generated By
-            100, # 20: U - Amount Paid
-            200, # 21: V - Details
-            100, # 22: W - Service Started
-            100, # 23: X - Service Ended (Red Column)
-            100, # 24: Y - Referral Code
-            120, # 25: Z - Referral Name
-            80,  # 26: AA - Referral Credit
-            100, # 27: AB - Net Amount
-            100, # 28: AC - Nurse Payment
-            80,  # 29: AD - Paid for
-            100  # 30: AE - Earnings
-        ]
-
-        # Apply widths loop
+        widths = [ 50, 50, 100, 120, 100, 120, 180, 50, 60, 100, 200, 100, 120, 100, 80, 80, 60, 80, 150, 100, 100, 200, 100, 100, 100, 120, 80, 100, 100, 80, 100 ]
         for i, width in enumerate(widths):
             ws.set_column_width(i, width)
-
     except Exception as e:
         print(f"Formatting warning: {e}")
 
@@ -461,15 +395,6 @@ def load_config_path(file_name):
 def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
-
-@st.cache_data(show_spinner=False)
-def robust_file_downloader(url):
-    session = requests.Session()
-    try:
-        response = session.get(url, verify=False, allow_redirects=True)
-        if response.status_code == 200: return BytesIO(response.content)
-        raise Exception(f"Status: {response.status_code}")
-    except Exception as e: raise Exception(f"Download failed: {e}")
 
 # --- DATABASE HELPERS ---
 def get_next_invoice_number_gsheet(date_obj, df_hist, location_str):
@@ -608,6 +533,109 @@ def mark_service_ended(sheet_obj, invoice_number, end_date):
     except Exception as e: return False, str(e)
 
 # ==========================================
+# SYSTEM HEALTH CHECK FUNCTION (IMPROVED)
+# ==========================================
+def run_system_health_check(drive_service, sheet_obj_25_id, agreements_id, invoices_id_config):
+    st.markdown("---")
+    st.markdown("### 🕵️‍♂️ System Health Scan")
+    
+    issues_found = False
+    
+    # 1. CHECK GOOGLE DRIVE CONNECTION
+    if drive_service:
+        st.success("✅ Google Drive API: Connected")
+    else:
+        st.error("❌ Google Drive API: NOT Connected. Check secrets/credentials.")
+        issues_found = True
+
+    # 2. CHECK AGREEMENTS FOLDER
+    try:
+        if drive_service:
+            # Check Agreements Root
+            drive_service.files().get(fileId=agreements_id).execute()
+            st.success(f"✅ Drive Folder 'Vesak Agreements': Found (ID: ...{agreements_id[-5:]})")
+    except Exception as e:
+        st.error(f"❌ Drive Folder 'Vesak Agreements' NOT FOUND. Check ID: {agreements_id}")
+        issues_found = True
+
+    # 3. CHECK INVOICES FOLDER
+    if not invoices_id_config:
+        st.warning("⚠️ 'Vesak Invoices' ID is empty. System will Auto-Search/Create it in Root.")
+    else:
+        try:
+            if drive_service:
+                drive_service.files().get(fileId=invoices_id_config).execute()
+                st.success(f"✅ Drive Folder 'Vesak Invoices': Found (ID: ...{invoices_id_config[-5:]})")
+        except Exception as e:
+            st.error(f"❌ Drive Folder 'Vesak Invoices' NOT FOUND. Check ID: {invoices_id_config}")
+            issues_found = True
+
+    # 4. SMART WORKBOOK & SHEET CHECK (Dynamic Year)
+    try:
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        
+        # A. Check Hardcoded 2025 Sheet (Legacy/Transition)
+        try:
+            client.open_by_key(sheet_obj_25_id)
+            st.success(f"✅ Legacy 2025 Workbook (ID Based): Connected")
+        except:
+             st.warning(f"⚠️ Legacy 2025 Workbook ID not found or permission denied.")
+
+        # B. Check Current & Previous Year Dynamic Workbooks
+        now = datetime.datetime.now()
+        current_yy = int(now.strftime("%y"))
+        years_to_check = [current_yy - 1, current_yy] # Check Previous and Current Year
+        
+        for y_int in years_to_check:
+            y_str = str(y_int)
+            wb_name = f"Vesak_Invoice_{y_str}"
+            
+            # Determine which month to check (if it's current year, check current month, else check Dec)
+            if y_int == current_yy:
+                 check_month = now.strftime("%b-%y").capitalize() # e.g. Jan-26
+            else:
+                 check_month = f"Dec-{y_str}" # Just checking if Dec exists for previous year as sample
+
+            try:
+                wb = client.open(wb_name)
+                st.success(f"✅ Workbook '{wb_name}': Found")
+                
+                # Check for specific month sheet
+                try:
+                    wb.worksheet(check_month)
+                    st.success(f"   └── ✅ Sheet '{check_month}': Found inside")
+                except:
+                    st.warning(f"   └── ⚠️ Sheet '{check_month}' MISSING in '{wb_name}'. It will be auto-created when you generate an invoice.")
+            except gspread.exceptions.SpreadsheetNotFound:
+                if y_int == current_yy:
+                     st.error(f"❌ Current Workbook '{wb_name}' NOT FOUND.")
+                     st.info(f"   👉 Action: Create a Google Sheet named '{wb_name}' and share it with the bot email.")
+                     issues_found = True
+                else:
+                     st.warning(f"⚠️ Previous Workbook '{wb_name}' not found (Might not be created yet).")
+
+    except Exception as e:
+        st.error(f"❌ Google Sheet Logic Failed: {e}")
+        issues_found = True
+
+    # 5. CHECK EXCEL/DATA SOURCE
+    if 'raw_file_obj' in globals() and raw_file_obj:
+         st.success("✅ Source Data: Excel/CSV File Loaded")
+    elif os.path.exists(URL_CONFIG_FILE):
+         with open(URL_CONFIG_FILE, "r") as f:
+             url = f.read().strip()
+             if url: st.success("✅ Source Data: OneDrive Link Configured")
+             else: st.warning("⚠️ Source Data: No Link or File provided yet.")
+    else:
+         st.warning("⚠️ Source Data: Waiting for input...")
+
+    if not issues_found:
+        st.success("🌟 ALL SYSTEMS NORMAL.")
+    else:
+        st.error("🛑 CRITICAL ISSUES FOUND. PLEASE FIX ABOVE ERRORS.")
+
+# ==========================================
 # DATA LISTS & CONSTANTS
 # ==========================================
 SERVICES_MASTER = {
@@ -699,6 +727,12 @@ sheet_obj = None
 
 with st.sidebar:
     st.header("📂 Data Source")
+    
+    # --- NEW: SYSTEM HEALTH CHECK BUTTON ---
+    if st.button("🕵️‍♂️ Scan System Connections", type="primary"):
+        run_system_health_check(drive_service, MANUAL_SHEET_ID_25, AGREEMENTS_ROOT_ID, INVOICES_ROOT_ID)
+    # ---------------------------------------
+
     if drive_service: st.success("Connected to Google Drive ✅")
     else: st.error("❌ Not Connected to Google Drive")
     data_source = st.radio("Load Confirmed Sheet via:", ["Upload File", "OneDrive Link"])
