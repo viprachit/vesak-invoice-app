@@ -180,7 +180,7 @@ def get_or_create_folder(service, folder_name, parent_id=None):
             if files: return files[0]['id']
         except:
             pass
-        # WARNING: STORAGE FULL OR PERMISSION ISSUE
+        # WARNING: STORAGE FULL OR PERMISSION ISSUE - Step 5 Logic
         st.error(f"CRITICAL ERROR: Could not create folder '{folder_name}'.")
         st.warning(f"⚠️ PLEASE MANUALLY CREATE THE FOLDER: '{folder_name}' in Google Drive immediately.")
         raise e
@@ -204,7 +204,6 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
         if INVOICES_ROOT_ID:
             root_id = INVOICES_ROOT_ID
         else:
-            # Fallback: Find "Vesak Invoices" in Root
             try:
                 root_id = get_or_create_folder(service, "Vesak Invoices")
             except:
@@ -231,6 +230,7 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
             
             return month_id
         except Exception as e:
+            # Step 5: Warn user explicitly
             st.error(f"❌ Critical Storage/Permission Error: {e}")
             st.info(f"ℹ️ Action Required: Please go to Google Drive > '{doc_type}' Folders and manually create folder: '{level2_name}' and inside it '{mmm_yy}'.")
             return None
@@ -461,6 +461,15 @@ def load_config_path(file_name):
 def save_config_path(path, file_name):
     with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
+
+@st.cache_data(show_spinner=False)
+def robust_file_downloader(url):
+    session = requests.Session()
+    try:
+        response = session.get(url, verify=False, allow_redirects=True)
+        if response.status_code == 200: return BytesIO(response.content)
+        raise Exception(f"Status: {response.status_code}")
+    except Exception as e: raise Exception(f"Download failed: {e}")
 
 # --- DATABASE HELPERS ---
 def get_next_invoice_number_gsheet(date_obj, df_hist, location_str):
@@ -855,20 +864,25 @@ def render_invoice_ui(df_main, mode="standard"):
                 save_success = True
 
         if save_success and inv_pdf_bytes and drive_service:
+            # 1. Drive Upload Logic (Robust Folder Handling)
             inv_folder_id = get_target_folder_hierarchy(drive_service, "Invoice", global_inv_date)
-            if inv_folder_id: # Only proceed if folder exists/created successfully
-                inv_file_name = generate_filename("Invoice", inv_num_input, c_name)
+            inv_file_name = generate_filename("Invoice", inv_num_input, c_name)
+            
+            if inv_folder_id:
                 existing_inv_id = find_file_in_folder(drive_service, inv_folder_id, inv_file_name)
-                
                 if existing_inv_id:
                     if btn_over_clicked:
                         update_drive_file(drive_service, existing_inv_id, inv_pdf_bytes)
-                        st.success(f"✅ Invoice PDF Overwritten: {inv_file_name}")
+                        st.success(f"✅ Drive: Invoice PDF Overwritten.")
                     else:
-                        st.warning(f"⚠️ Invoice PDF exists. Skipping upload: {inv_file_name}")
+                        st.warning(f"⚠️ Drive: Invoice PDF exists. Skipping.")
                 else:
                     upload_to_drive(drive_service, inv_folder_id, inv_file_name, inv_pdf_bytes)
-                    st.success(f"✅ Invoice PDF Saved: {inv_file_name}")
+                    st.success(f"✅ Drive: Invoice PDF Saved.")
+            
+            # 2. Local Download Logic
+            st.download_button("⬇️ Download Invoice PDF Locally", data=inv_pdf_bytes, file_name=inv_file_name, mime="application/pdf")
+
         if save_success: st.rerun()
 
     if btn_nurse or btn_patient:
@@ -876,45 +890,46 @@ def render_invoice_ui(df_main, mode="standard"):
         display_type = "NURSE AGREEMENT" if btn_nurse else "PATIENT AGREEMENT"
         html_agreement = f"""<!DOCTYPE html><html><head><style>body {{ font-family: 'Lato', sans-serif; }} .page {{ position: relative; padding: 40px; }} .watermark {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 100px; color: #002147; opacity: 0.1; font-weight: bold; z-index: -1; }} .header {{ text-align: center; margin-bottom: 30px; }} .title {{ font-size: 24px; font-weight: bold; text-decoration: underline; color: #002147; }} .content {{ font-size: 14px; line-height: 1.6; text-align: justify; }}</style></head><body><div class="watermark">VESAK</div><div class="page"><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><div class="title">{display_type}</div><br><div class="content"><p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p><p><strong>Ref No:</strong> {c_ref_no}</p><p><strong>Client Name:</strong> {c_name}</p><br><p>This is a placeholder for the {display_type.title()}. Content will be updated later.</p><p>__________________________<br>Authorized Signatory</p></div></div></body></html>"""
         pdf_bytes = convert_html_to_pdf(html_agreement)
-        if pdf_bytes and drive_service:
-            folder_id = get_target_folder_hierarchy(drive_service, doc_type, global_inv_date)
-            if folder_id: # Only proceed if folder exists/created successfully
-                file_name = generate_filename(doc_type, inv_num_input, c_name)
-                existing_file_id = find_file_in_folder(drive_service, folder_id, file_name)
-                if existing_file_id:
-                     if conflict_exists and chk_overwrite:
-                        if update_drive_file(drive_service, existing_file_id, pdf_bytes): st.success(f"✅ Overwritten: {file_name}")
-                        else: st.error("Failed to overwrite file.")
-                     else: st.warning(f"⚠️ File exists. Use 'Overwrite'.")
-                else:
-                     if upload_to_drive(drive_service, folder_id, file_name, pdf_bytes): st.success(f"✅ Saved Agreement: {file_name}")
+        
+        if pdf_bytes:
+            file_name = generate_filename(doc_type, inv_num_input, c_name)
+            
+            # 1. Drive Upload
+            if drive_service:
+                folder_id = get_target_folder_hierarchy(drive_service, doc_type, global_inv_date)
+                if folder_id:
+                    existing_file_id = find_file_in_folder(drive_service, folder_id, file_name)
+                    if existing_file_id:
+                         if conflict_exists and chk_overwrite:
+                            if update_drive_file(drive_service, existing_file_id, pdf_bytes): st.success(f"✅ Drive: Overwritten {file_name}")
+                            else: st.error("Failed to overwrite file.")
+                         else: st.warning(f"⚠️ Drive: File exists. Use 'Overwrite'.")
+                    else:
+                         if upload_to_drive(drive_service, folder_id, file_name, pdf_bytes): st.success(f"✅ Drive: Saved {file_name}")
+            
+            # 2. Local Download
+            st.download_button(f"⬇️ Download {doc_type} Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
 if raw_file_obj:
     try:
-        if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
-        
         # --- FIXED FILE READING LOGIC ---
         is_excel = False
-        if hasattr(raw_file_obj, 'name') and raw_file_obj.name.endswith('.xlsx'):
-            is_excel = True
-        elif isinstance(raw_file_obj, BytesIO):
-            # If it's a raw BytesIO from downloader, we assume Excel because CSV would text-like
+        filename = getattr(raw_file_obj, "name", "downloaded_data.xlsx")
+        
+        if hasattr(raw_file_obj, 'seek'): raw_file_obj.seek(0)
+        if filename.endswith('.xlsx') or isinstance(raw_file_obj, BytesIO):
             is_excel = True
             
-        if is_excel:
-            df = pd.read_excel(raw_file_obj, engine='openpyxl')
-        else:
-            df = pd.read_csv(raw_file_obj)
+        if is_excel: df = pd.read_excel(raw_file_obj, engine='openpyxl')
+        else: df = pd.read_csv(raw_file_obj)
             
         df = normalize_columns(df, COLUMN_ALIASES)
         
-        # TAB 1: GENERATE INVOICE
+        # TAB 1 & 2
         with tab1: render_invoice_ui(df, mode="standard")
-        
-        # TAB 2: FORCE NEW
         with tab2: render_invoice_ui(df, mode="force_new")
 
-        # TAB 3: DUPLICATE
+        # TAB 3: DUPLICATE (LOCAL DOWNLOAD ONLY)
         with tab3:
             st.header("©️ Duplicate Invoice from History")
             dup_date = st.date_input("New Invoice Date:", value=datetime.date.today(), key="dup_date")
@@ -924,38 +939,46 @@ if raw_file_obj:
             if not hist_df.empty and 'Invoice Number' in hist_df.columns:
                 hist_df['Display'] = hist_df['Invoice Number'] + " - " + hist_df['Customer Name']
                 selected_dup = st.selectbox("Select Invoice to Duplicate:", hist_df['Display'].unique())
+                
                 if selected_dup:
                     src_row = hist_df[hist_df['Display'] == selected_dup].iloc[0]
-                    st.info(f"Duplicating: {src_row['Customer Name']} (Plan: {src_row.get('Plan')})")
+                    dup_inv_no = str(src_row['Invoice Number'])
+                    dup_name = str(src_row['Customer Name'])
                     
-                    col_d1, col_d2 = st.columns(2)
-                    with col_d1:
-                        new_qty = st.number_input("Paid for (Qty):", value=1, min_value=1)
-                        new_inv_num = get_next_invoice_number_gsheet(dup_date, hist_df, src_row.get('Location', 'PUN'))
-                        st.text_input("New Invoice No (Auto):", value=new_inv_num, disabled=True)
-                    with col_d2:
-                        st.write("Confirm details below and Click Generate")
+                    st.info(f"Selected: {dup_name}")
                     
-                    if st.button("Generate Duplicate Invoice"):
-                        st.warning("Feature logic placeholder - Ensure mapping matches save function.")
+                    # Generate PDFs for Download (NO DRIVE SAVE)
+                    # 1. Invoice
+                    html_dup_inv = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {dup_inv_no}</h2><p>Customer: {dup_name}</p></body></html>"""
+                    pdf_dup_inv = convert_html_to_pdf(html_dup_inv)
+                    fname_inv = generate_filename("Invoice", dup_inv_no, dup_name)
+                    st.download_button("⬇️ Download Duplicate Invoice PDF", data=pdf_dup_inv, file_name=fname_inv, mime="application/pdf")
+                    
+                    # 2. Nurse Agreement
+                    html_dup_nu = f"""<!DOCTYPE html><html><body><h2>NURSE AGREEMENT</h2><p>Ref: {dup_inv_no}</p></body></html>"""
+                    pdf_dup_nu = convert_html_to_pdf(html_dup_nu)
+                    fname_nu = generate_filename("Nurse", dup_inv_no, dup_name)
+                    st.download_button("⬇️ Download Nurse Agreement PDF", data=pdf_dup_nu, file_name=fname_nu, mime="application/pdf")
+
+                    # 3. Patient Agreement
+                    html_dup_pa = f"""<!DOCTYPE html><html><body><h2>PATIENT AGREEMENT</h2><p>Ref: {dup_inv_no}</p></body></html>"""
+                    pdf_dup_pa = convert_html_to_pdf(html_dup_pa)
+                    fname_pa = generate_filename("Patient", dup_inv_no, dup_name)
+                    st.download_button("⬇️ Download Patient Agreement PDF", data=pdf_dup_pa, file_name=fname_pa, mime="application/pdf")
             else:
-                st.warning("No History Found to duplicate from.")
+                st.warning("No History Found.")
 
         # TAB 4: MANAGE SERVICES
         with tab4:
             st.header("🛠 Service Manager & Calculator")
-            st.write("Check included/excluded items for specific plans.")
-            
             ms_plan = st.selectbox("Select Plan:", list(SERVICES_MASTER.keys()))
-            ms_sub = st.text_input("Sub-services (comma separated) or 'All':", value="All")
-            
+            ms_sub = st.text_input("Sub-services:", value="All")
             inc, exc = get_base_lists(ms_plan, ms_sub)
-            
             c1, c2 = st.columns(2)
-            with c1:
+            with c1: 
                 st.success(f"✅ Included ({len(inc)})")
                 for i in inc: st.write(f"- {i}")
-            with c2:
+            with c2: 
                 st.error(f"❌ Excluded ({len(exc)})")
                 for e in exc: st.write(f"- {e}")
 
@@ -964,14 +987,11 @@ if raw_file_obj:
             st.header("💰 Nurse Payment Update")
             pay_sheet_date = st.date_input("Load Sheet Date:", value=datetime.date.today(), key="pay_sheet_date")
             _, pay_sheet_obj = get_active_sheet_client(drive_service, pay_sheet_date)
-            
             if pay_sheet_obj:
                 pay_inv_no = st.text_input("Enter Invoice Number to Pay:")
                 pay_amount = st.number_input("Nurse Payment Amount (₹):", min_value=0.0)
                 if st.button("Update Payment"):
-                    if update_nurse_payment(pay_sheet_obj, pay_inv_no, pay_amount):
-                        st.success("✅ Payment Updated!")
-                    else:
-                        st.error("❌ Failed to update. Check Invoice Number.")
+                    if update_nurse_payment(pay_sheet_obj, pay_inv_no, pay_amount): st.success("✅ Payment Updated!")
+                    else: st.error("❌ Failed to update.")
             
     except Exception as e: st.error(f"Error reading file: {e}")
