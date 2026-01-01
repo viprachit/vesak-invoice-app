@@ -131,11 +131,11 @@ def upload_to_drive(service, folder_id, file_name, file_content_bytes):
 
 # --- AUTOMATIC FORMATTING FUNCTION (UPDATED FOR 31 COLUMNS) ---
 def format_worksheet_header(ws):
-    """Applies specific formatting: Header Navy Blue, Service Ended Red, Widths."""
+    """Applies specific formatting: Header Light Green, Service Ended Red, Widths."""
     try:
         # 1. Format Header Row (A1:AE1) - Navy Blue Background
         ws.format("A1:AE1", {
-            "backgroundColor": {"red": 0.0, "green": 0.13, "blue": 0.28}, # #002147 Navy
+            "backgroundColor": {"red": 0.58, "green": 0.77, "blue": 0.49}, # #002147 Navy, #93c47d Light Green
             "textFormat": {
                 "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
                 "bold": True,
@@ -147,7 +147,7 @@ def format_worksheet_header(ws):
         })
         
         # 2. Highlight 'Service Ended' Header (Col X = Index 24) in Red
-        ws.format("X1", {
+        ws.format("X2", {
              "backgroundColor": {"red": 0.8, "green": 0.0, "blue": 0.0},
              "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True}
         })
@@ -740,3 +740,4 @@ if raw_file_obj:
             pay_wb_obj, pay_sheet_obj = get_active_sheet_client(drive_service, pay_sheet_date)
             # ... (Nurse Payment UI logic same as before, calling update_nurse_payment)
     except Exception as e: st.error(f"Error reading file: {e}")
+
