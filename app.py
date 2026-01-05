@@ -44,7 +44,7 @@ SHEET_HEADERS = [
 if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = False
 if 'last_formula_injected' not in st.session_state: st.session_state.last_formula_injected = ""
 
-# --- CONFIGURATION LOADER (SIMPLIFIED) ---
+# --- CONFIGURATION LOADER ---
 def load_system_config():
     default_config = {
         "master_sheet_url": "",
@@ -63,15 +63,22 @@ def save_system_config(config_data):
     with open(SYSTEM_CONFIG_FILE, "w") as f:
         json.dump(config_data, f)
 
+# --- MISSING FUNCTIONS RESTORED (CRITICAL FIX) ---
+def load_config_path(file_name):
+    if os.path.exists(file_name):
+        with open(file_name, "r") as f: return f.read().strip()
+    return ""
+
+def save_config_path(path, file_name):
+    with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
+    return path
+
 def extract_id_from_url(url):
     if not url: return ""
-    # Extract ID between /d/ and /
     match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
     if match: return match.group(1)
-    # Extract Folder ID
     match_folder = re.search(r"/folders/([a-zA-Z0-9-_]+)", url)
     if match_folder: return match_folder.group(1)
-    # If user pasted just ID
     if len(url) > 20 and "/" not in url: return url
     return ""
 
@@ -113,27 +120,54 @@ def get_gspread_client():
 # ==========================================
 # FILE HANDLING & HELPERS
 # ==========================================
+
+# [FIXED] ROBUST DOWNLOADER V3 - SESSION BASED
 @st.cache_data(show_spinner=False)
 def robust_file_downloader(url):
+    """
+    Downloads file using a session to persist cookies through redirects.
+    This fixes 403 errors on public OneDrive links.
+    """
     session = requests.Session()
-    session.headers.update({'User-Agent': 'Mozilla/5.0'})
-    download_url = url.split("?")[0] + "?download=1" if "sharepoint" in url or "1drv.ms" in url else url
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': 'https://www.google.com/'
+    })
+
+    download_url = url
+    
+    # 1. Clean the URL (Remove existing parameters)
+    if "?" in url:
+        base_url = url.split("?")[0]
+    else:
+        base_url = url
+
+    # 2. Append download command
+    if "1drv.ms" in url or "sharepoint" in url or "onedrive" in url:
+        download_url = base_url + "?download=1"
+    
     try:
+        # Attempt download
         response = session.get(download_url, verify=False, allow_redirects=True)
-        if response.status_code == 200: return BytesIO(response.content)
-    except: pass
-    return None
-
-# --- RESTORED MISSING FUNCTIONS ---
-def load_config_path(file_name):
-    if os.path.exists(file_name):
-        with open(file_name, "r") as f: return f.read().strip()
-    return ""
-
-def save_config_path(path, file_name):
-    with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
-    return path
-# ----------------------------------
+        
+        # Check if successful
+        if response.status_code == 200:
+            # Verify we got a file (Excel/CSV usually) and not a HTML login page
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'text/html' in content_type and len(response.content) < 5000:
+                # If we got a small HTML page, it might be a login redirect.
+                # Try the original URL without modification as a last resort
+                response = session.get(url, verify=False, allow_redirects=True)
+            
+            return BytesIO(response.content)
+            
+        raise Exception(f"Status Code: {response.status_code}")
+        
+    except Exception as e:
+        # Just return None instead of crashing, let the UI handle it
+        return None
 
 def format_date_with_suffix(d):
     if pd.isna(d): return "N/A"
@@ -153,7 +187,7 @@ def generate_filename(doc_type, invoice_no, customer_name):
 
 # --- HELPER FUNCTIONS FOR LISTS ---
 def get_base_lists(selected_plan, selected_sub_service):
-    # Defining Master List inside function or scope
+    # Defining Master List inside function
     SERVICES_MASTER = {
         "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
         "Plan B: Skilled Nursing": ["All", "Intravenous (IV) Therapy & Injections", "Medication Management", "Advanced Wound Care", "Catheter & Ostomy Care", "Post-Surgical Care"],
@@ -619,8 +653,7 @@ def render_invoice_ui(df_main, mode="standard"):
             "Customer Name": c_name, "Mobile": c_mob, "Plan": c_plan,
             "Amount": rate, "Amount Paid": total, "Notes / Remarks": notes,
             "Service Started": datetime.datetime.now().strftime("%Y-%m-%d"), "Service Ended": "",
-            "Details": f"Paid for {billing_qty}", # Added Details Logic
-            "Details": f"Paid for {billing_qty}" if billing_qty < 2 else f"Paid for {billing_qty} units"
+            "Details": f"Paid for {billing_qty} units"
         }
         
         # Save to Sheet (Overwrite or Append)
