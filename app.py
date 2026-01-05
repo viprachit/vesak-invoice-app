@@ -28,7 +28,7 @@ st.set_page_config(page_title="Vesak Care Invoice", layout="wide", page_icon="�
 
 LOGO_FILE = "logo.png"
 URL_CONFIG_FILE = "url_config.txt"
-SYSTEM_CONFIG_FILE = "system_config.json" # <--- Stores your Drive IDs persistently
+SYSTEM_CONFIG_FILE = "system_config.json" 
 
 # --- HEADERS (34 COLUMNS) ---
 SHEET_HEADERS = [
@@ -47,7 +47,7 @@ if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = Fal
 if 'active_tab_simulation' not in st.session_state: st.session_state.active_tab_simulation = "Generate"
 
 # ==========================================
-# ⚙️ CONFIGURATION MANAGEMENT (NEW)
+# CONFIGURATION MANAGEMENT
 # ==========================================
 def load_system_config():
     default_config = {
@@ -68,29 +68,21 @@ def save_system_config(config_data):
         json.dump(config_data, f)
 
 def extract_id_from_input(input_str, type_mode="file"):
-    """
-    Extracts Google Drive IDs from full URLs.
-    Supports multiple URLs separated by semicolon ';'
-    """
     if not input_str: return [] if type_mode == "list" else ""
-    
     # Regex patterns
     file_pattern = r"/spreadsheets/d/([a-zA-Z0-9-_]+)"
     folder_pattern = r"/folders/([a-zA-Z0-9-_]+)"
     
-    # Split by semicolon for multiple inputs
     raw_inputs = [x.strip() for x in input_str.split(';') if x.strip()]
     extracted_ids = []
 
     for raw in raw_inputs:
-        # Check if it's already an ID (roughly 25+ chars, no slashes)
         if len(raw) > 20 and "/" not in raw:
             extracted_ids.append(raw)
             continue
             
-        # Try Regex
         pattern = file_pattern if "spreadsheets" in raw else folder_pattern
-        if "drive.google.com" in raw and "folders" in raw: pattern = folder_pattern # Explicit folder link
+        if "drive.google.com" in raw and "folders" in raw: pattern = folder_pattern 
         
         match = re.search(pattern, raw)
         if match:
@@ -99,11 +91,10 @@ def extract_id_from_input(input_str, type_mode="file"):
             pass 
 
     if type_mode == "list":
-        return extracted_ids # Returns List of IDs
+        return extracted_ids 
     else:
-        return extracted_ids[0] if extracted_ids else "" # Returns single ID string (First valid one)
+        return extracted_ids[0] if extracted_ids else "" 
 
-# --- LOAD CONFIGURATION AT START ---
 sys_config = load_system_config()
 
 # --- CREDENTIALS HANDLING ---
@@ -146,7 +137,7 @@ def get_drive_service():
     return None
 
 # ==========================================
-# CRITICAL UPDATE: FOLDER & FILE LOGIC
+# FOLDER & FILE LOGIC
 # ==========================================
 
 @st.cache_data(show_spinner=False)
@@ -193,20 +184,17 @@ def get_or_create_folder(service, folder_name, parent_id=None):
         st.error(f"CRITICAL ERROR: Could not create folder '{folder_name}'.")
         raise e
 
-# --- CRITICAL: NEW FOLDER HIERARCHY LOGIC ---
 def get_target_folder_hierarchy(service, doc_type, date_obj):
     yy = date_obj.strftime("%y") 
-    mmm_yy_raw = date_obj.strftime("%b-%y") # e.g. Jan-26
+    mmm_yy_raw = date_obj.strftime("%b-%y")
     
-    # Fix for 'Jan' logic if needed, or rely on %b
     if mmm_yy_raw.startswith("Jan") and mmm_yy_raw[3] != '-': 
         mmm_yy_raw = date_obj.strftime("%b-%y")
 
     root_id = None
-    level2_name = "" # Yearly Folder
-    level3_name = "" # Monthly Folder with Prefix
+    level2_name = "" 
+    level3_name = "" 
 
-    # 1. DETERMINE ROOT AND NAMES
     if doc_type == "Invoice":
         if sys_config["folder_invoices"]:
             root_id = sys_config["folder_invoices"]
@@ -215,7 +203,6 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
             except: 
                 st.warning("⚠️ 'Vesak Invoices' Folder ID missing in Config.")
                 return None
-        # Hierarchy: Invoice-26 -> IN-Jan-26
         level2_name = f"Invoice-{yy}"
         level3_name = f"IN-{mmm_yy_raw}"
 
@@ -225,7 +212,6 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
         else:
              st.error("⚠️ Agreements Folder Link Missing in Configuration!")
              return None
-        # Hierarchy: Nurse Agreement 26 -> NU-Jan-26
         level2_name = f"Nurse Agreement {yy}"
         level3_name = f"NU-{mmm_yy_raw}"
 
@@ -235,19 +221,13 @@ def get_target_folder_hierarchy(service, doc_type, date_obj):
         else:
              st.error("⚠️ Agreements Folder Link Missing in Configuration!")
              return None
-        # Hierarchy: Patient Agreement 26 -> PA-Jan-26
         level2_name = f"Patient Agreement {yy}"
         level3_name = f"PA-{mmm_yy_raw}"
 
-    # 2. CREATE/FIND STRUCTURE
     if root_id:
         try:
-            # Level 2 (Yearly)
             year_id = get_or_create_folder(service, level2_name, parent_id=root_id)
-            
-            # Level 3 (Monthly with Prefix)
             month_id = get_or_create_folder(service, level3_name, parent_id=year_id)
-            
             return month_id
         except Exception as e:
             st.error(f"❌ Critical Storage/Permission Error: {e}")
@@ -292,7 +272,7 @@ def generate_filename(doc_type, invoice_no, customer_name):
     return f"{prefix}-{invoice_no}-{clean_name}.pdf"
 
 # ==========================================
-# CRITICAL UPDATE: FORMATTING
+# FORMATTING
 # ==========================================
 def format_worksheet_header(ws):
     try:
@@ -313,7 +293,7 @@ def format_worksheet_header(ws):
         for i, width in enumerate(widths): ws.set_column_width(i, width)
     except: pass
 
-# --- SMART SHEET CONNECTION (UPDATED FOR DYNAMIC CONFIG) ---
+# --- SMART SHEET CONNECTION ---
 def get_active_sheet_client(drive_service, date_obj):
     try:
         creds = get_credentials()
@@ -324,18 +304,17 @@ def get_active_sheet_client(drive_service, date_obj):
         wb_name = f"Vesak_Invoice_{yy}"
         spreadsheet = None
 
-        # --- DYNAMIC LOOKUP IN CONFIGURED WORKBOOKS ---
         configured_ids = sys_config.get("workbook_ids", [])
         
         # 1. Try connecting to provided IDs
         for wb_id in configured_ids:
             try:
                 temp_wb = client.open_by_key(wb_id)
-                # Check if this WB name contains the year (e.g., "Invoice_26")
+                # Check if this WB name contains the year 
                 if f"_{yy}" in temp_wb.title:
                     spreadsheet = temp_wb
                     break
-                # Or try opening the sheet inside it
+                # Or try opening the sheet inside it regardless of wb name
                 try:
                     worksheet = temp_wb.worksheet(mmm_yy)
                     return temp_wb, worksheet
@@ -374,11 +353,13 @@ def get_active_sheet_client(drive_service, date_obj):
     except Exception as e:
         st.error(f"Google Sheet Error: {e}"); return None, None
 
-# --- MASTER HISTORY LOGIC (UPDATED) ---
+# --- MASTER HISTORY LOGIC (CRITICAL FIX FOR PREVIOUS YEARS) ---
 @st.cache_data(ttl=60)
 def get_master_history(current_wb_name, _current_sheet_obj):
     frames = []
+    # 1. Load ALL configured Workbooks from Config
     configured_ids = sys_config.get("workbook_ids", [])
+    
     if configured_ids:
         creds = get_credentials()
         try:
@@ -387,12 +368,18 @@ def get_master_history(current_wb_name, _current_sheet_obj):
                 try:
                     wb = client.open_by_key(wb_id)
                     for ws in wb.worksheets():
+                        # Avoid duplicating current sheet if it's already in the list
                         if _current_sheet_obj and ws.id == _current_sheet_obj.id: continue
-                        data = ws.get_all_records()
-                        if data: frames.append(pd.DataFrame(data))
+                        
+                        try:
+                            # Safely get records
+                            data = ws.get_all_records()
+                            if data: frames.append(pd.DataFrame(data))
+                        except: pass
                 except: pass
         except: pass
 
+    # 2. Add Current Active Sheet Data
     if _current_sheet_obj:
         try:
             data_curr = _current_sheet_obj.get_all_records()
@@ -400,9 +387,12 @@ def get_master_history(current_wb_name, _current_sheet_obj):
         except: pass
 
     if not frames: return pd.DataFrame()
+    
     master_df = pd.concat(frames, ignore_index=True)
     if 'Invoice Number' in master_df.columns:
         master_df['Invoice Number'] = master_df['Invoice Number'].astype(str)
+    
+    # Clean up empty rows
     return master_df.dropna(how='all')
 
 # --- HELPER FUNCTIONS ---
@@ -546,7 +536,6 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, original_inv_to_find):
         return False
     except Exception as e: st.error(f"Update Error: {e}"); return False
 
-# --- NEW FUNCTION FOR NURSE MANAGEMENT (UPDATED: RE-WRITES FORMULA) ---
 def update_nurse_management(sheet_obj, invoice_number, payment_amount, nurse_name, nurse_extra, nurse_note):
     if sheet_obj is None: return False
     try:
@@ -586,11 +575,9 @@ def run_system_health_check(drive_service):
     
     issues_found = False
     
-    # 1. CHECK GOOGLE DRIVE CONNECTION
     if drive_service: st.success("✅ Google Drive API: Connected")
     else: st.error("❌ Google Drive API: NOT Connected."); issues_found = True
 
-    # 2. CHECK CONFIGURATION
     if not sys_config["workbook_ids"]:
         st.warning("⚠️ No Invoice Workbooks configured. Please add links in settings.")
         issues_found = True
@@ -603,7 +590,6 @@ def run_system_health_check(drive_service):
     if sys_config["folder_invoices"]: st.success("✅ Config: Invoices Folder Linked.")
     else: st.warning("⚠️ Config: Invoices Folder Missing."); issues_found = True
 
-    # 3. SOURCE DATA CHECK
     if 'raw_file_obj' in globals() and raw_file_obj:
          st.success("✅ Source Data: Excel/CSV File Loaded")
     elif os.path.exists(URL_CONFIG_FILE):
@@ -708,24 +694,21 @@ drive_service = get_drive_service()
 sheet_obj = None 
 
 with st.sidebar:
-    # --- NEW CONFIGURATION SECTION ---
+    # --- CONFIGURATION SECTION ---
     with st.expander("⚙️ System Configuration", expanded=True):
         st.write("Paste **Full Links** below. Use `;` to separate multiple workbook links.")
         
-        # Load existing values
         exist_wb = "; ".join(sys_config.get("workbook_ids", []))
         exist_agg = sys_config.get("folder_agreements", "")
         exist_hist = sys_config.get("folder_history", "")
         exist_inv = sys_config.get("folder_invoices", "")
         
-        # Inputs
         in_wb = st.text_area("Invoice Workbook Links (2025; 2026...):", value=exist_wb, help="Paste links for 2025, 2026, etc sheets here.")
         in_agg = st.text_input("Agreements Folder Link:", value=exist_agg)
         in_hist = st.text_input("History Folder Link:", value=exist_hist)
         in_inv = st.text_input("Invoices Folder Link:", value=exist_inv)
         
         if st.button("💾 Save Configuration"):
-            # Extract IDs from URLs
             new_config = {
                 "workbook_ids": extract_id_from_input(in_wb, "list"),
                 "folder_agreements": extract_id_from_input(in_agg, "single"),
@@ -762,16 +745,27 @@ elif data_source == "OneDrive Link":
         except Exception as e: st.sidebar.error(f"Link Error: {e}")
 
 # --- REINTEGRATED ALL 5 TABS ---
-# Tab 5 Renamed to "Nurse Manage"
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🧾 Generate Invoice", "🆕 Force New Invoice", "©️ Duplicate Invoice", "🛠 Manage Services", "💰 Nurse Manage"])
 
-# --- COMMON INVOICE UI FUNCTION (Used by Tab 1, 2) ---
+# --- COMMON INVOICE UI FUNCTION ---
 def render_invoice_ui(df_main, mode="standard"):
-    st.info("📅 Step 1: Select Invoice Date to load the correct Workbook/Sheet")
-    global_inv_date = st.date_input("Invoice Date:", value=datetime.date.today(), key=f"global_date_{mode}")
+    # --- CRITICAL FIX: INITIALIZE VARIABLES HERE TO PREVENT SCOPE ERROR ---
+    chk_overwrite = False
+    conflict_exists = False
+    
+    st.info("📅 Step 1: Select Invoice Date (Loads Sheet & Formatting)")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        # Date to load the workbook
+        global_inv_date = st.date_input("Workbook Load Date:", value=datetime.date.today(), key=f"global_date_{mode}")
+    with c2:
+        # Date to PRINT on invoice (Restored Feature)
+        final_invoice_date = st.date_input("Invoice Date (Print):", value=datetime.date.today(), key=f"print_date_{mode}")
     
     current_wb_obj, current_sheet_obj = get_active_sheet_client(drive_service, global_inv_date)
-    df_history_data = get_master_history(f"Vesak_Invoice_{global_inv_date.strftime('%y')}", current_sheet_obj)
+    # --- HISTORY LOOKUP FIX: Scans ALL configured workbooks, not just current year ---
+    df_history_data = get_master_history("Master_History_Scan", current_sheet_obj)
     
     if current_sheet_obj: st.sidebar.success(f"Writing to: {current_sheet_obj.title} ✅")
     else: st.sidebar.error("❌ No Active Sheet Selected")
@@ -818,7 +812,7 @@ def render_invoice_ui(df_main, mode="standard"):
         next_sequential_inv = get_next_invoice_number_gsheet(global_inv_date, df_history_data, c_location)
         next_uid = get_next_uid_gsheet(df_history_data)
 
-        conflict_exists, default_inv_num, final_uid = False, next_sequential_inv, next_uid
+        default_inv_num, final_uid = next_sequential_inv, next_uid
         
         if mode == "standard":
             if active_record is not None:
@@ -826,17 +820,35 @@ def render_invoice_ui(df_main, mode="standard"):
                 st.warning(f"⚠️ Active Invoice Found: {existing_inv_num}.")
                 default_inv_num, final_uid = existing_inv_num, str(active_record.get('UID', ''))
                 conflict_exists = True
+                # --- RESTORED OVERWRITE CHECKBOX ---
                 chk_overwrite = st.checkbox("Overwrite Invoice", key=f"chk_over_{mode}")
             else:
                 st.info(f"ℹ️ Generating New Invoice No: {next_sequential_inv}")
         elif mode == "force_new":
             st.warning("⚠ Generating NEW invoice for existing client.")
 
+        # --- RESTORED INVOICE NO SECTION VISIBILITY LOGIC ---
         inv_num_input = st.text_input("Invoice No:", value=default_inv_num, key=f"inv_input_{mode}", disabled=True if mode == "standard" and not chk_overwrite and conflict_exists else False)
         
     with col2:
         generated_by = st.text_input("Generated By:", value="Vesak Patient Care", key=f"gen_by_{mode}")
         final_notes = st.text_area("Notes:", value=str(row.get('Notes', '')), key=f"notes_{mode}")
+
+    # --- RESTORED SERVICES BOXES SECTION ---
+    st.subheader("Services Configuration")
+    sub_service_raw = row.get('Sub Service', 'All')
+    inc_list, exc_list = get_base_lists(c_plan, sub_service_raw)
+    
+    s_col1, s_col2 = st.columns(2)
+    with s_col1:
+        st.text_area("Services Included (Read-Only)", value=", ".join(inc_list), height=100, disabled=True, key=f"svc_inc_{mode}")
+    with s_col2:
+        # Use session state to persist manual edits to excluded services
+        ex_key = f"svc_exc_{mode}_{selected_label}"
+        if ex_key not in st.session_state:
+            st.session_state[ex_key] = ", ".join(exc_list)
+        
+        final_excluded_str = st.text_area("Services Not Included (Editable)", value=st.session_state[ex_key], height=100, key=ex_key)
 
     st.subheader("Referral Information")
     r_col1, r_col2, r_col3 = st.columns(3)
@@ -845,15 +857,20 @@ def render_invoice_ui(df_main, mode="standard"):
     with r_col3: in_ref_credit = st.text_input("Referral Credit", value=c_ref_credit, disabled=bool(c_ref_credit), key=f"ref_cr_{mode}")
     
     st.markdown("---")
+    
+    # --- BUTTON LOGIC REPAIRED ---
     btn_new_disabled, btn_over_visible, btn_agg_disabled, btn_dup_disabled = False, False, True, True
     
     if mode == "standard":
         if conflict_exists:
             if chk_overwrite:
+                # Overwrite mode: Can overwrite, Can print agreements
                 btn_new_disabled, btn_over_visible, btn_agg_disabled, btn_dup_disabled = True, True, False, True
             else:
+                # Conflict but no overwrite checked: Locked out
                 btn_new_disabled, btn_over_visible, btn_agg_disabled, btn_dup_disabled = True, False, True, False
         else:
+            # New invoice mode
             btn_new_disabled, btn_over_visible, btn_agg_disabled, btn_dup_disabled = False, False, False, True
 
     b_col1, b_col2, b_col3, b_col4 = st.columns(4)
@@ -883,7 +900,7 @@ def render_invoice_ui(df_main, mode="standard"):
         
         invoice_record = {
             "UID": str(final_uid), "Serial No.": str(c_serial), "Ref. No.": str(c_ref_no),
-            "Invoice Number": str(inv_num_input), "Date": format_date_with_suffix(global_inv_date), 
+            "Invoice Number": str(inv_num_input), "Date": format_date_with_suffix(final_invoice_date), 
             "Generated At": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
             "Customer Name": str(c_name), "Age": str(c_age), "Gender": str(c_gender), "Location": str(c_location), 
             "Address": str(c_addr), "Mobile": str(c_mob), "Plan": str(clean_plan), "Shift": str(row.get('Shift', '')),
@@ -894,6 +911,7 @@ def render_invoice_ui(df_main, mode="standard"):
             "Referral Code": str(in_ref_code), "Referral Name": str(in_ref_name), "Referral Credit": str(in_ref_credit)
         }
         
+        # --- PDF GENERATION WITH RESTORED SERVICES LIST ---
         html_invoice = f"""
         <!DOCTYPE html>
         <html>
@@ -911,12 +929,11 @@ def render_invoice_ui(df_main, mode="standard"):
                     }}
                 }}
                 body {{ font-family: 'Helvetica', sans-serif; }}
-                .page-content {{
-                    padding-top: {pdf_top_margin}px; 
-                }}
+                .page-content {{ padding-top: {pdf_top_margin}px; }}
                 .header {{ text-align: center; }}
                 table {{ width: 100%; border-collapse: collapse; }}
                 td, th {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
+                .service-box {{ margin-top: 10px; font-size: 12px; }}
             </style>
         </head>
         <body>
@@ -927,12 +944,17 @@ def render_invoice_ui(df_main, mode="standard"):
                 <hr>
                 <p><strong>Details:</strong> {details_text}</p>
                 <p><strong>Total Amount:</strong> ₹{total_billed_amount}</p>
-                <p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p>
+                <p><strong>Date:</strong> {format_date_with_suffix(final_invoice_date)}</p>
                 <br>
                 <p><em>Notes: {final_notes}</em></p>
+                
+                <div class="service-box">
+                    <strong>Services Not Included:</strong><br>
+                    {final_excluded_str}
+                </div>
             </div>
             <div id="footerContent">
-                {format_date_with_suffix(global_inv_date)} | Page <pdf:pagenumber>
+                {format_date_with_suffix(final_invoice_date)} | Page <pdf:pagenumber>
             </div>
         </body>
         </html>
@@ -966,9 +988,11 @@ def render_invoice_ui(df_main, mode="standard"):
                 else:
                     upload_to_drive(drive_service, inv_folder_id, inv_file_name, inv_pdf_bytes)
                     st.success(f"✅ Drive: Invoice PDF Saved.")
+            # --- RESTORED PDF PREVIEW (AS DOWNLOAD BUTTON) ---
             st.download_button("⬇️ Download Invoice PDF Locally", data=inv_pdf_bytes, file_name=inv_file_name, mime="application/pdf")
 
-        if save_success: st.rerun()
+        if save_success: 
+            st.balloons()
 
     if btn_nurse or btn_patient:
         doc_type = "Nurse" if btn_nurse else "Patient"
@@ -979,15 +1003,9 @@ def render_invoice_ui(df_main, mode="standard"):
         <html>
         <head>
             <style>
-                @page {{
-                    size: a4 portrait;
-                    margin: 1cm;
-                }}
+                @page {{ size: a4 portrait; margin: 1cm; }}
                 body {{ font-family: 'Helvetica', sans-serif; }}
-                .page-content {{
-                    padding-top: {pdf_top_margin}px;
-                    position: relative;
-                }}
+                .page-content {{ padding-top: {pdf_top_margin}px; position: relative; }}
                 .watermark {{
                     position: fixed; top: 50%; left: 50%; 
                     transform: translate(-50%, -50%); 
@@ -1009,7 +1027,7 @@ def render_invoice_ui(df_main, mode="standard"):
                 <div class="title">{display_type}</div>
                 <br>
                 <div class="content">
-                    <p><strong>Date:</strong> {format_date_with_suffix(global_inv_date)}</p>
+                    <p><strong>Date:</strong> {format_date_with_suffix(final_invoice_date)}</p>
                     <p><strong>Ref No:</strong> {c_ref_no}</p>
                     <p><strong>Client Name:</strong> {c_name}</p>
                     <br>
@@ -1097,7 +1115,7 @@ if raw_file_obj:
                 st.error(f"❌ Excluded ({len(exc)})")
                 for e in exc: st.write(f"- {e}")
 
-        # --- UPDATED TAB 5: NURSE MANAGE ---
+        # --- TAB 5: NURSE MANAGE ---
         with tab5:
             st.header("💰 Nurse Management & Payment")
             pay_sheet_date = st.date_input("Load Sheet Date:", value=datetime.date.today(), key="pay_sheet_date")
