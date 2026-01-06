@@ -167,6 +167,19 @@ def normalize_id(val):
     except:
         return str(val).strip()
 
+# --- CRITICAL FIX 2: CLEAN REFERRAL DATA (NO 'nan') ---
+def clean_referral_field(val):
+    """
+    Ensures that empty cells in Excel stay empty in Google Sheets.
+    Removes 'nan', 'NaN', 'None', etc.
+    """
+    if pd.isna(val): return ""
+    s_val = str(val).strip()
+    if s_val.lower() == "nan": return ""
+    if s_val.lower() == "none": return ""
+    if s_val == "": return ""
+    return s_val
+
 def generate_filename(doc_type, invoice_no, customer_name):
     prefix = {"Invoice": "IN", "Nurse": "NU", "Patient": "PA"}.get(doc_type, "DOC")
     clean_name = re.sub(r'[^a-zA-Z0-9]', '-', str(customer_name)).upper().strip('-')
@@ -501,15 +514,7 @@ def render_invoice_ui(df_main, mode="standard"):
             df_view = df_view[df_view['Location'].astype(str) == filter_loc]
 
     # --- CRITICAL POINT 2: EXCLUSION LOGIC (SERVICE ENDED) ---
-    # We must check the Google Sheet to see if "Service Ended" (Column X) has a date
-    # If so, remove them from df_view
-    
-    # We use the current Invoice Date (default today) to determine which sheet to check
-    # But for exclusion, we check the sheet corresponding to today or standard active sheet
-    
     current_mmm_yy = datetime.date.today().strftime("%b-%y")
-    
-    # We fetch history here to build the exclusion list
     excluded_refs = []
     
     try:
@@ -521,26 +526,17 @@ def render_invoice_ui(df_main, mode="standard"):
             df_check = pd.DataFrame(data_check)
             
             if not df_check.empty and 'Service Ended' in df_check.columns:
-                # Normalize Columns for check
                 df_check['Ref_Norm'] = df_check['Ref. No.'].apply(normalize_id)
                 df_check['Ser_Norm'] = df_check['Serial No.'].apply(normalize_id)
-                
-                # Check for Valid Date in Service Ended (DD-MM-YYYY)
-                # Regex for DD-MM-YYYY or DD-MM-YY
                 date_pattern = r'\d{1,2}-\d{1,2}-\d{2,4}'
-                
                 ended_mask = df_check['Service Ended'].astype(str).str.contains(date_pattern, regex=True, na=False)
                 ended_rows = df_check[ended_mask]
                 
-                # Create a set of "Ref-Serial" keys to exclude
                 if not ended_rows.empty:
                     for _, r_end in ended_rows.iterrows():
                         key = f"{normalize_id(r_end['Ref. No.'])}-{normalize_id(r_end['Serial No.'])}"
                         excluded_refs.append(key)
-                        
-        except gspread.exceptions.WorksheetNotFound:
-            pass # No sheet for this month yet, so no one has ended service this month yet.
-            
+        except gspread.exceptions.WorksheetNotFound: pass 
     except Exception as e:
         st.warning(f"Could not check exclusion list: {e}")
 
@@ -549,11 +545,7 @@ def render_invoice_ui(df_main, mode="standard"):
         df_view['Ref_Norm_View'] = df_view['Ref. No.'].apply(normalize_id)
         df_view['Ser_Norm_View'] = df_view['Serial No.'].apply(normalize_id)
         df_view['Unique_Key'] = df_view['Ref_Norm_View'] + "-" + df_view['Ser_Norm_View']
-        
-        # Filter out rows where Unique_Key is in excluded_refs
         df_view = df_view[~df_view['Unique_Key'].isin(excluded_refs)]
-        
-        # Clean up temp columns
         df_view = df_view.drop(columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key'])
 
     # Dropdown to select Customer
@@ -587,9 +579,11 @@ def render_invoice_ui(df_main, mode="standard"):
     c_rec = str(row.get('Recurring Service', ''))
     c_period = str(row.get('Period', ''))
     c_visits = str(row.get('Visits', ''))
-    c_ref_code = str(row.get('Referral Code', ''))
-    c_ref_name = str(row.get('Referral Name', ''))
-    c_ref_credit = str(row.get('Referral Credit', ''))
+    
+    # --- CRITICAL FIX 3: REFERRAL DATA (CLEAN 'nan') ---
+    c_ref_code = clean_referral_field(row.get('Referral Code', ''))
+    c_ref_name = clean_referral_field(row.get('Referral Name', ''))
+    c_ref_credit = clean_referral_field(row.get('Referral Credit', ''))
 
     # --- INVOICE DATE SECTION (NEW) ---
     st.divider()
@@ -601,15 +595,12 @@ def render_invoice_ui(df_main, mode="standard"):
     col_inv1, col_inv2 = st.columns(2)
     with col_inv1:
         # Point 2: New Invoice Date Section
-        # Point 3: Active when Overwrite is ticked OR New Invoice (Always Active)
         inv_date_val = st.date_input("Invoice Date:", value=datetime.date.today(), key=f"inv_d_{mode}")
         
     with col_inv2:
         # Generate Invoice Number Logic
         mmm_yy = inv_date_val.strftime("%b-%y")
         try:
-            # We open the workbook again or reuse, but we need the specific month sheet for saving
-            # Since 'wb' was opened for exclusion check (current month), we might need a different month if invoice date is different
             wb_save = client.open_by_key(master_id)
             try: sheet_obj = wb_save.worksheet(mmm_yy)
             except: sheet_obj = wb_save.add_worksheet(title=mmm_yy, rows=1000, cols=34); sheet_obj.append_row(SHEET_HEADERS)
@@ -699,7 +690,6 @@ def render_invoice_ui(df_main, mode="standard"):
         total = rate * billing_qty
         
         # Point 9 & 10: Date Format DD-MM-YYYY (No Time)
-        # Service Started = Invoice Date
         service_start_date = format_date_simple(inv_date_val)
         generated_at = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
@@ -725,12 +715,12 @@ def render_invoice_ui(df_main, mode="standard"):
             "Amount Paid": total, 
             "Notes / Remarks": notes, 
             "Generated By": gen_by_to_save, 
-            "Service Started": service_start_date, # Point 9: Invoice Date as Start Date (DD-MM-YYYY)
-            "Service Ended": "",                   # Point 10: DD-MM-YYYY
+            "Service Started": service_start_date, # Point 9
+            "Service Ended": "",                   # Point 10
             "Details": f"Paid for {billing_qty} units",
-            "Referral Code": c_ref_code,
-            "Referral Name": c_ref_name,
-            "Referral Credit": c_ref_credit
+            "Referral Code": c_ref_code,   # Cleaned (No 'nan')
+            "Referral Name": c_ref_name,   # Cleaned (No 'nan')
+            "Referral Credit": c_ref_credit# Cleaned (No 'nan')
         }
         
         if conflict_exists and chk_overwrite and existing_row_idx:
@@ -753,8 +743,6 @@ def render_invoice_ui(df_main, mode="standard"):
         
         rate = float(row.get('Unit Rate', 0))
         total = rate * billing_qty
-        
-        # Format Date for PDF Display: "Jan 23rd 2026"
         pdf_date_str = format_date_with_suffix(inv_date_val)
 
         if doc_type == "Invoice":
@@ -806,7 +794,6 @@ if raw_file_obj:
         filename = getattr(raw_file_obj, "name", "data.xlsx")
         is_excel = filename.endswith('.xlsx')
         
-        # CRITICAL FIX 1: DETECT "Confirmed" SHEET
         if is_excel:
             try:
                 df = pd.read_excel(raw_file_obj, sheet_name='Confirmed', engine='openpyxl')
