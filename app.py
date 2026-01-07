@@ -1007,12 +1007,12 @@ def render_invoice_ui(df_main, mode="standard"):
             box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column;
         }}
         .watermark-container {{
-			position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-			opacity: 0.015; pointer-events: none; z-index: 0;
+			position: fixed; top: 148.5mm; left: 50%; transform: translateX(-50%) translateY(-50%);
+    		pointer-events: none; z-index: 0;
 		}}
         .watermark-text {{
             font-family: 'Playfair Display', serif; font-size: 80px;
-            font-weight: 700; color: #002147; letter-spacing: 0.3em;
+    		font-weight: 800; color: rgba(0, 33, 71, 0.04); /* tuned for text visibility */ letter-spacing: 0.25em;
         }}
         @media print {{
             body {{ background: white; -webkit-print-color-adjust: exact; }}
@@ -1031,7 +1031,7 @@ def render_invoice_ui(df_main, mode="standard"):
 
     <div class="invoice-page" id="invoice-content">
         <div class="watermark-container">
-            <img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.1;">
+            <img src="data:image/png;base64,{logo_b64}" style="display:block; margin:0; padding:0; width:300px; opacity:0.04;">
             <div class="watermark-text mt-4">VESAK</div>
         </div>
 
@@ -1287,3 +1287,4 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
+
