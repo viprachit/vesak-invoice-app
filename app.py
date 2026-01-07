@@ -723,11 +723,6 @@ def render_invoice_ui(df_main, mode="standard"):
         master_records = sheet_obj.get_all_records()
         df_history = pd.DataFrame(master_records)
 
-        # Check Conflicts
-        conflict_exists = False
-        existing_row_idx = None
-        inv_final = ""
-
         if not df_history.empty:
             df_history['Ref_Norm'] = df_history['Ref. No.'].apply(normalize_id)
             df_history['Ser_Norm'] = df_history['Serial No.'].apply(normalize_id)
@@ -738,7 +733,7 @@ def render_invoice_ui(df_main, mode="standard"):
                 last_match = existing_matches.iloc[-1]
                 if str(last_match.get('Invoice Number', '')).strip() != "":
                     conflict_exists = True
-					
+                    
                     # --- FETCHING EXISTING DATA ---
                     # 1. Invoice Number (Must stay locked)
                     inv_final = str(last_match['Invoice Number'])
@@ -758,11 +753,9 @@ def render_invoice_ui(df_main, mode="standard"):
                         # Remove suffixes st, nd, rd, th to parse
                         clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
                         default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
-                    except: pass # Keep today's date if parsing fails													
-														  
-                    #inv_final = str(last_match['Invoice Number'])
-					
-					try:
+                    except: pass # Keep today's date if parsing fails
+
+                    try:
                         cell_match = sheet_obj.find(inv_final, in_column=4)
                         if cell_match: existing_row_idx = cell_match.row
                     except: pass
@@ -785,9 +778,9 @@ def render_invoice_ui(df_main, mode="standard"):
         # Point 2: New Invoice Date Section - PRE-FILLED WITH FETCHED DATE
         inv_date_val = st.date_input("Invoice Date:", value=default_date, key=f"inv_d_{mode}")
         
-    with col_inv2:						  
-		# Point 4: Invoice No Editable ONLY when Overwrite is ticked
-        # It uses inv_final which is locked to historical value if conflict exists																				  
+    with col_inv2:
+        # Point 4: Invoice No Editable ONLY when Overwrite is ticked
+        # It uses inv_final which is locked to historical value if conflict exists
         is_inv_disabled = not chk_overwrite
         inv_input = st.text_input("Invoice Number", value=inv_final, disabled=is_inv_disabled, key=f"inv_n_{mode}")
 
@@ -798,10 +791,9 @@ def render_invoice_ui(df_main, mode="standard"):
 
     col3, col4 = st.columns(2)
     with col3:
-        # PRE-FILLED WITH FETCHED UNITS									   
+        # PRE-FILLED WITH FETCHED UNITS
         billing_qty = st.number_input("Paid Units:", min_value=1, value=default_qty, key=f"qty_{mode}")
         # PRE-FILLED WITH FETCHED NOTES
-																											   
         notes = st.text_area("Notes:", value=default_notes, key=f"note_{mode}")
     
     with col4:
@@ -1062,12 +1054,9 @@ def render_invoice_ui(df_main, mode="standard"):
         </main>
 
         <footer class="relative z-10 mt-auto w-full">
-            <!-- Minimalist Top Divider -->
             <div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
         
-            <!-- Footer Content -->
             <div class="flex justify-between items-end text-xs text-gray-500">
-                <!-- Office Locations (LEFT) -->
                 <div>
                     <p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
                     <div class="flex gap-2">
@@ -1077,15 +1066,12 @@ def render_invoice_ui(df_main, mode="standard"):
                     </div>
                 </div>
         
-                <!-- Social Media Icons (RIGHT) -->
                 <div class="flex items-center gap-6">
-                    <!-- Instagram -->
                     <a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
                         <i class="fab fa-instagram text-lg"></i>
                         <span>@VesakCare</span>
                     </a>
                 
-                    <!-- Facebook -->
                     <a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
                         <i class="fab fa-facebook text-lg"></i>
                         <span>@VesakCare</span>
@@ -1093,7 +1079,6 @@ def render_invoice_ui(df_main, mode="standard"):
                 </div>
             </div>
         
-            <!-- Bottom Bar -->
             <div class="mt-4 w-full h-1 bg-vesak-navy"></div>
         </footer>
     </div>
@@ -1235,9 +1220,3 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
-
-
-
-
-
-
