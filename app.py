@@ -694,20 +694,32 @@ def render_invoice_ui(df_main, mode="standard"):
     # Overwrite Checkbox (Moved up to control Disabled state)
     chk_overwrite = st.checkbox("Overwrite Existing Invoice", key=f"ow_{mode}")
 
-    col_inv1, col_inv2 = st.columns(2)
-    with col_inv1:
-        # Point 2: New Invoice Date Section
-        inv_date_val = st.date_input("Invoice Date:", value=datetime.date.today(), key=f"inv_d_{mode}")
-        
-    with col_inv2:
-        # Generate Invoice Number Logic
-        mmm_yy = inv_date_val.strftime("%b-%y")
-        try:
-            wb_save = client.open_by_key(master_id)
-            try: sheet_obj = wb_save.worksheet(mmm_yy)
-            except: sheet_obj = wb_save.add_worksheet(title=mmm_yy, rows=1000, cols=34); sheet_obj.append_row(SHEET_HEADERS)
-        except Exception as e: st.error(f"Connection Error: {e}"); return
-        
+    # --- CHANGED: LOGIC MOVED UP TO FETCH DATA BEFORE RENDERING UI ---
+    # Default Values based on input file
+    inv_final = ""
+    default_date = datetime.date.today()
+    default_qty = 1
+    
+    val_notes = row.get('Notes', '')
+    default_notes = "" if pd.isna(val_notes) or str(val_notes).strip().lower() == 'nan' else str(val_notes)
+    
+    conflict_exists = False
+    existing_row_idx = None
+    
+    # Logic to fetch from Google Sheet History
+    mmm_yy = default_date.strftime("%b-%y")
+    
+    sheet_obj = None
+    try:
+        wb_save = client.open_by_key(master_id)
+        try: sheet_obj = wb_save.worksheet(mmm_yy)
+        except: 
+            # Only create new sheet if we are NOT just reading existing
+            sheet_obj = wb_save.add_worksheet(title=mmm_yy, rows=1000, cols=34)
+            sheet_obj.append_row(SHEET_HEADERS)
+    except Exception as e: st.error(f"Connection Error: {e}"); return
+    
+    if sheet_obj:
         master_records = sheet_obj.get_all_records()
         df_history = pd.DataFrame(master_records)
 
@@ -726,25 +738,55 @@ def render_invoice_ui(df_main, mode="standard"):
                 last_match = existing_matches.iloc[-1]
                 if str(last_match.get('Invoice Number', '')).strip() != "":
                     conflict_exists = True
+					
+                    # --- FETCHING EXISTING DATA ---
+                    # 1. Invoice Number (Must stay locked)
                     inv_final = str(last_match['Invoice Number'])
+                    
+                    # 2. Notes
+                    hist_note = str(last_match.get('Notes / Remarks', '')).strip()
+                    if hist_note: default_notes = hist_note
+
+                    # 3. Paid Units (Extract from Details string)
+                    hist_details = str(last_match.get('Details', ''))
+                    match_qty = re.search(r'Paid for (\d+)', hist_details)
+                    if match_qty: default_qty = int(match_qty.group(1))
+
+                    # 4. Date (Try to parse back from "Jan. 23rd 2026" format)
+                    hist_date_str = str(last_match.get('Date', ''))
                     try:
+                        # Remove suffixes st, nd, rd, th to parse
+                        clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
+                        default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
+                    except: pass # Keep today's date if parsing fails													
+														  
+                    inv_final = str(last_match['Invoice Number'])
+					try:
                         cell_match = sheet_obj.find(inv_final, in_column=4)
                         if cell_match: existing_row_idx = cell_match.row
                     except: pass
 
-        if not conflict_exists:
-            loc_code = "MUM" if "mumbai" in str(row.get('Location', '')).lower() else "PUN"
-            date_part = inv_date_val.strftime('%y%m%d')
-            prefix = f"{loc_code}-{date_part}-"
-            next_seq = 1
-            if not df_history.empty and 'Invoice Number' in df_history.columns:
-                 todays_invs = df_history[df_history['Invoice Number'].astype(str).str.startswith(prefix)]
-                 if not todays_invs.empty:
-                     seqs = [int(x.split('-')[-1]) for x in todays_invs['Invoice Number'] if '-' in x]
-                     if seqs: next_seq = max(seqs) + 1
-            inv_final = f"{prefix}{next_seq:03d}"
+    if not conflict_exists:
+        # Generate NEW Invoice Number if no conflict
+        loc_code = "MUM" if "mumbai" in str(row.get('Location', '')).lower() else "PUN"
+        date_part = default_date.strftime('%y%m%d')
+        prefix = f"{loc_code}-{date_part}-"
+        next_seq = 1
+        if not df_history.empty and 'Invoice Number' in df_history.columns:
+             todays_invs = df_history[df_history['Invoice Number'].astype(str).str.startswith(prefix)]
+             if not todays_invs.empty:
+                 seqs = [int(x.split('-')[-1]) for x in todays_invs['Invoice Number'] if '-' in x]
+                 if seqs: next_seq = max(seqs) + 1
+        inv_final = f"{prefix}{next_seq:03d}"
 
-        # Point 4: Invoice No Editable ONLY when Overwrite is ticked
+    col_inv1, col_inv2 = st.columns(2)
+    with col_inv1:
+        # Point 2: New Invoice Date Section - PRE-FILLED WITH FETCHED DATE
+        inv_date_val = st.date_input("Invoice Date:", value=default_date, key=f"inv_d_{mode}")
+        
+    with col_inv2:						  
+		# Point 4: Invoice No Editable ONLY when Overwrite is ticked
+        # It uses inv_final which is locked to historical value if conflict exists																				  
         is_inv_disabled = not chk_overwrite
         inv_input = st.text_input("Invoice Number", value=inv_final, disabled=is_inv_disabled, key=f"inv_n_{mode}")
 
@@ -755,10 +797,11 @@ def render_invoice_ui(df_main, mode="standard"):
 
     col3, col4 = st.columns(2)
     with col3:
-        billing_qty = st.number_input("Paid Units:", min_value=1, value=1, key=f"qty_{mode}")
-        val_notes = row.get('Notes', '')
-        notes_default = "" if pd.isna(val_notes) or str(val_notes).strip().lower() == 'nan' else str(val_notes)
-        notes = st.text_area("Notes:", value=notes_default, key=f"note_{mode}")
+        # PRE-FILLED WITH FETCHED UNITS									   
+        billing_qty = st.number_input("Paid Units:", min_value=1, value=default_qty, key=f"qty_{mode}")
+        # PRE-FILLED WITH FETCHED NOTES
+																											   
+        notes = st.text_area("Notes:", value=default_notes, key=f"note_{mode}")
     
     with col4:
          gen_by_input = st.text_input("Generated By:", value="", placeholder="Leave blank for Default", key=f"gen_{mode}")
@@ -1191,7 +1234,6 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
-
 
 
 
