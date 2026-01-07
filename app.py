@@ -1009,7 +1009,7 @@ def render_invoice_ui(df_main, mode="standard"):
 		}}
         .watermark-text {{
             font-family: 'Playfair Display', serif; font-size: 80px;
-            font-weight: 800; color: rgba(0, 33, 71, 0.025); /* tuned for text visibility */ letter-spacing: 0.3em;
+            font-weight: 800; color: rgba(0, 33, 71, 0.04); /* tuned for text visibility */ letter-spacing: 0.3em;
         }}
         @media print {{
             body {{ background: white; -webkit-print-color-adjust: exact; }}
@@ -1028,7 +1028,7 @@ def render_invoice_ui(df_main, mode="standard"):
 
     <div class="invoice-page" id="invoice-content">
         <div class="watermark-container">
-            <img src="data:image/png;base64,{logo_b64}" style="display:block; margin:0; padding:0; width:300px; opacity:0.025;">
+            <img src="data:image/png;base64,{logo_b64}" style="display:block; margin:0; padding:0; width:300px; opacity:0.04;">
             <div class="watermark-text mt-4">VESAK</div>
         </div>
 
@@ -1284,6 +1284,7 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
