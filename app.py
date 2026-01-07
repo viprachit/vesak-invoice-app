@@ -1003,8 +1003,9 @@ def render_invoice_ui(df_main, mode="standard"):
             box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column;
         }}
         .watermark-container {{
-			position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-			opacity: 0.015; pointer-events: none; z-index: 0;
+			position: fixed; top: 148.5mm; /* half of A4 height */
+    		left: 105mm; /* half of A4 width */
+    		transform: translate(-50%, -50%); opacity: 0.015; pointer-events: none; z-index: 0;
 		}}
         .watermark-text {{
             font-family: 'Playfair Display', serif; font-size: 80px;
@@ -1283,3 +1284,4 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
+
