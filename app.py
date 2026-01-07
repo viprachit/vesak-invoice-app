@@ -928,7 +928,7 @@ def render_invoice_ui(df_main, mode="standard"):
 
     <div class="invoice-page" id="invoice-content">
         <div class="watermark-container">
-            <img src="data:image/png;base64,{logo_b64}" style="width: 300px;">
+            <img src="data:image/png;base64,{logo_b64}" style="width: 300px; opacity: 0.1;">
             <div class="watermark-text mt-4">VESAK</div>
         </div>
 
@@ -1191,4 +1191,5 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
