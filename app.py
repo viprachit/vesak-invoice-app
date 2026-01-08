@@ -900,7 +900,7 @@ def render_invoice_ui(df_main, mode="standard"):
                     
 				# --- FETCHING EXISTING DATA ---
 				# 1. Invoice Number (Must stay locked)
-				inv_final = str(last_match.get['Invoice Number', ''])
+				inv_final = str(last_match['Invoice Number', ''])
 				
 				# 2. Notes
 				hist_note = str(last_match.get('Notes / Remarks', '')).strip()
@@ -1508,4 +1508,5 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
