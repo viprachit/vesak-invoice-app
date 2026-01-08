@@ -170,7 +170,7 @@ def normalize_id(val):
 													 
         return str(int(float(s_val)))
     except:
-																				 
+        # If conversion fails (e.g., alphanumeric "A123"), return stripped string																				 
         return s_val
 
 # --- CRITICAL FIX 2: CLEAN REFERRAL DATA (NO 'nan') ---
@@ -895,8 +895,8 @@ def render_invoice_ui(df_main, mode="standard"):
             existing_matches = df_history[match_mask]
             
             if not existing_matches.empty:
-				conflict_exists = True # Flag as duplicate based on Ref/Serial Match
-									  
+                # If ANY match is found based on Ref & Serial, treat as CONFLICT
+                conflict_exists = True
                 last_match = existing_matches.iloc[-1]
                     
 				# --- FETCHING EXISTING DATA ---
@@ -934,15 +934,15 @@ def render_invoice_ui(df_main, mode="standard"):
                 # +2 because dataframe is 0-based and sheet has header row
                 existing_row_idx = last_match.name + 2					 													  
 
-				#try:
+				try:
 					# We need to find the specific row index for the update
 					# Since we matched on Ref/Serial, we iterate to find the row index in the sheet
 					# (Note: gspread row indices are 1-based, dataframe is 0-based)
-					#existing_row_idx = last_match.name + 2 
+					existing_row_idx = last_match.name + 2 
 				#except: pass
-			#else:
+			else:
 				# --- NEW FIX: RESET TO 1 IF NO HISTORY FOUND ---
-				#default_qty = 1
+				default_qty = 1
 				# -----------------------------------------------
 
     if not conflict_exists:
@@ -1026,10 +1026,10 @@ def render_invoice_ui(df_main, mode="standard"):
         generated_at = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
         # --- LOGIC FOR DETAILS COLUMN (RULES 1-6) ---
-        p_raw_check = str(row.get('Period', '')).strip().lower()
-        #p_check_lower = p_raw_check.lower()
-        shift_raw_check = str(row.get('Shift', '')).strip().lower()
-        #shift_check_lower = shift_raw_check.lower()
+        p_raw_check = str(row.get('Period', '')).strip()
+        p_check_lower = p_raw_check.lower()
+        shift_raw_check = str(row.get('Shift', '')).strip()
+        shift_check_lower = shift_raw_check.lower()
         
         details_text = ""
         
@@ -1051,17 +1051,17 @@ def render_invoice_ui(df_main, mode="standard"):
                 # 1 < N < 7 or non-multiples > 7
                 details_text = f"Paid for {billing_qty} Days"
                 
-        elif "monthly" in p_raw_check:
+        elif "monthly" in p_check_lower:
             if billing_qty == 1: details_text = f"Paid for {billing_qty} Month"
             else: details_text = f"Paid for {billing_qty} Months"
             
-        elif "weekly" in p_raw_check:
+        elif "weekly" in p_check_lower:
             if billing_qty == 1: details_text = f"Paid for {billing_qty} Week"
             else: details_text = f"Paid for {billing_qty} Weeks"
             
         else:
             # Fallback
-            details_text = f"Paid for {billing_qty} {str(row.get('Period', ''))}"
+            details_text = f"Paid for {billing_qty} {p_raw_check}"
             
         if mode == "force_new": details_text += " (New)"
         # ---------------------------------------------
@@ -1114,8 +1114,8 @@ def render_invoice_ui(df_main, mode="standard"):
                 record["UID"] = actual_uid
             except: pass
             
-            if update_invoice_in_gsheet(record, sheet_obj, existing_row_idx)
-				st.success(f"Overwritten Row {existing_row_idx}!")
+            update_invoice_in_gsheet(record, sheet_obj, existing_row_idx)
+			st.success(f"Overwritten Row {existing_row_idx}!")
         else:
             save_invoice_to_gsheet(record, sheet_obj)
             st.success("Created New Row!")
@@ -1130,7 +1130,7 @@ def render_invoice_ui(df_main, mode="standard"):
         pdf_date_str = format_date_with_suffix(inv_date_val)
         
         # Calculate file name here so we can pass it to the JS/HTML
-        file_name = generate_filename(doc_type.split()[0], inv_input, c_name)
+        file_name = generate_filename(doc_type, inv_input, c_name)
 
         if doc_type == "Invoice":
             # --- PREPARE DATA FOR HTML INJECTION ---
@@ -1141,7 +1141,8 @@ def render_invoice_ui(df_main, mode="standard"):
             
             # --- LOGIC FOR PDF DESCRIPTION TEXT ---
             pdf_display_plan = c_plan # Default fallback
-            sub_srv_txt = str(row.get('Sub Service', '')).strip()            
+            sub_srv_txt = str(row.get('Sub Service', '')).strip()
+            			
             if c_plan == "Plan A: Patient Attendant Care":
                 pdf_display_plan = "Patient Care Service"
             elif c_plan == "Plan B: Skilled Nursing":
@@ -1180,195 +1181,195 @@ def render_invoice_ui(df_main, mode="standard"):
 
             # --- WEB PREVIEW TEMPLATE (Tailwind CSS) ---
             html_content = f"""
-			<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-				<title>Invoice</title>
-				<script src="https://cdn.tailwindcss.com"></script>
-				<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-				<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-				<script>
-					tailwind.config = {{
-						theme: {{
-							extend: {{
-								colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }},
-								fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }}
-							}}
-						}}
-					}}
-				</script>
-				<style>
-					@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap');
-					body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }}
-					.invoice-page {{
-						background: white; width: 210mm; height: 297mm;
-						padding: 30px; overflow: hidden;
-						box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column;
-					}}
-					.watermark-container {{
-						position: fixed; top: 148.5mm; left: 50%; transform: translateX(-50%) translateY(-50%);
-						pointer-events: none; z-index: 0;
-					}}
-					.watermark-text {{
-						font-family: 'Playfair Display', serif; font-size: 80px;
-						font-weight: 800; color: rgba(0, 33, 71, 0.04); /* tuned for text visibility */ letter-spacing: 0.25em;
-					}}
-					@media print {{
-						body {{ background: white; -webkit-print-color-adjust: exact; }}
-						.invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }}
-						.no-print {{ display: none !important; }}
-						.watermark-container {{ opacity: 0.04 !important; }}
-					}}
-				</style>
-			</head>
-			<body class="py-10">
-				<div class="max-w-[210mm] mx-auto mb-6 flex justify-end gap-3 no-print px-4">
-					<button onclick="window.print()" class="bg-gray-600 text-white px-5 py-2 rounded shadow hover:bg-gray-800 transition font-bold text-xs uppercase tracking-widest">
-						<i class="fas fa-print mr-2"></i> Print / Save Vector PDF
-					</button>
-					<button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest">
-						<i class="fas fa-download mr-2"></i> Download PDF
-					</button>
-				</div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Invoice</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+	<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+	<script>
+		tailwind.config = {{
+			theme: {{
+				extend: {{
+					colors: {{ vesak: {{ navy: '#002147', gold: '#C5A065', orange: '#CC4E00' }} }},
+					fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['"Lato"', 'sans-serif'] }}
+				}}
+			}}
+		}}
+	</script>
+	<style>
+		@import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap');
+		body {{ font-family: 'Lato', sans-serif; background: #f0f0f0; }}
+		.invoice-page {{
+			background: white; width: 210mm; height: 297mm;
+			padding: 30px; overflow: hidden;
+			box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); display: flex; flex-direction: column;
+		}}
+		.watermark-container {{
+			position: fixed; top: 148.5mm; left: 50%; transform: translateX(-50%) translateY(-50%);
+			pointer-events: none; z-index: 0;
+		}}
+		.watermark-text {{
+			font-family: 'Playfair Display', serif; font-size: 80px;
+			font-weight: 800; color: rgba(0, 33, 71, 0.04); /* tuned for text visibility */ letter-spacing: 0.25em;
+		}}
+		@media print {{
+			body {{ background: white; -webkit-print-color-adjust: exact; }}
+			.invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }}
+			.no-print {{ display: none !important; }}
+			.watermark-container {{ opacity: 0.04 !important; }}
+		}}
+	</style>
+</head>
+<body class="py-10">
+	<div class="max-w-[210mm] mx-auto mb-6 flex justify-end gap-3 no-print px-4">
+		<button onclick="window.print()" class="bg-gray-600 text-white px-5 py-2 rounded shadow hover:bg-gray-800 transition font-bold text-xs uppercase tracking-widest">
+			<i class="fas fa-print mr-2"></i> Print / Save Vector PDF
+		</button>
+		<button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest">
+			<i class="fas fa-download mr-2"></i> Download PDF
+		</button>
+	</div>
 
-				<div class="invoice-page" id="invoice-content">
-					<div class="watermark-container">
-						<img src="data:image/png;base64,{logo_b64}" style="display:block; margin:0; padding:0; width:300px; opacity:0.04;">
-						<div class="watermark-text mt-4">VESAK</div>
+	<div class="invoice-page" id="invoice-content">
+		<div class="watermark-container">
+			<img src="data:image/png;base64,{logo_b64}" style="display:block; margin:0; padding:0; width:300px; opacity:0.04;">
+			<div class="watermark-text mt-4">VESAK</div>
+		</div>
+
+		<header class="relative z-10 w-full mb-10">
+			<div class="flex justify-between items-start border-b border-gray-100 pb-6">
+				<div class="flex items-center gap-5">
+					<img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto">
+					<div>
+						<h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">
+							Vesak Care <span class="text-vesak-gold font-normal">Foundation</span>
+						</h1>
+						<div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5">
+							<span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span>
+							<span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span>
+							<span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span>
+						</div>
 					</div>
-
-					<header class="relative z-10 w-full mb-10">
-						<div class="flex justify-between items-start border-b border-gray-100 pb-6">
-							<div class="flex items-center gap-5">
-								<img src="data:image/png;base64,{logo_b64}" class="w-20 h-auto">
-								<div>
-									<h1 class="font-serif text-2xl font-bold text-vesak-navy tracking-wide leading-none mb-2">
-										Vesak Care <span class="text-vesak-gold font-normal">Foundation</span>
-									</h1>
-									<div class="flex flex-col text-xs text-gray-500 font-light tracking-wide space-y-0.5">
-										<span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span>
-										<span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span>
-										<span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span>
-									</div>
-								</div>
-							</div>
-							<div class="text-right">
-								<span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span>
-								<div class="text-xs text-vesak-navy">
-									<div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date}</b></div>
-									<div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num}</b></div>
-								</div>
-							</div>
-						</div>
-					</header>
-
-					<main class="flex-grow relative z-10">
-						
-						<div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy">
-							<div class="w-1/2 p-4 border-r border-gray-200">
-								<div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div>
-								<div class="text-lg font-bold text-vesak-navy">{c_name}</div>
-								<div class="flex gap-4 mt-2 text-xs text-gray-600">
-									<div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender}</div>
-									<div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age} Yrs</div>
-								</div>
-							</div>
-							<div class="w-1/2 p-4 flex flex-col justify-center">
-								<div class="flex items-center gap-2 text-xs text-gray-600 mb-2">
-									<i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob}
-								</div>
-								<div class="flex items-start gap-2 text-xs text-gray-600">
-									<i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> 
-									<span class="leading-tight">{c_addr}</span>
-								</div>
-							</div>
-						</div>
-
-						<table class="w-full mb-8">
-							<thead>
-								<tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left">
-									<th class="p-3 w-3/5">Description</th>
-									<th class="p-3 w-2/5 text-right">Amount</th>
-								</tr>
-							</thead>
-							<tbody>
-								<tr class="border-b border-gray-100">
-									<td class="p-4 align-top">
-										<div class="font-bold text-sm text-gray-800">{clean_plan}</div>
-										{desc_col_html}
-									</td>
-									<td class="p-4 text-right font-bold text-sm text-gray-800 align-top">
-										{amount_col_html}
-									</td>
-								</tr>
-							</tbody>
-						</table>
-
-						<div class="grid grid-cols-2 gap-8">
-							<div>
-								<h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4>
-								<ul class="list-disc pl-4 space-y-1">{inc_html}</ul>
-							</div>
-							<div>
-								<h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4>
-								<ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html}</ul>
-							</div>
-						</div>
-
-						{notes_section}
-
-						<div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">
-							Thank you for choosing Vesak Care Foundation!
-						</div>
-					</main>
-
-					<footer class="relative z-10 mt-auto w-full">
-						<div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
-						
-						<div class="flex justify-between items-end text-xs text-gray-500">
-							<div>
-								<p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
-								<div class="flex gap-2">
-									<span>Pune</span><span class="text-vesak-gold">•</span>
-									<span>Mumbai</span><span class="text-vesak-gold">•</span>
-									<span>Kolhapur</span>
-								</div>
-							</div>
-                
-							<div class="flex items-center gap-6">
-								<a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-									<i class="fab fa-instagram text-lg"></i>
-									<span>@VesakCare</span>
-								</a>
-								
-								<a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-									<i class="fab fa-facebook text-lg"></i>
-									<span>@VesakCare</span>
-								</a>
-							</div>
-						</div>
-						
-						<div class="mt-4 w-full h-1 bg-vesak-navy"></div>
-					</footer>
 				</div>
+				<div class="text-right">
+					<span class="block font-serif text-3xl text-gray-200 tracking-widest mb-2">INVOICE</span>
+					<div class="text-xs text-vesak-navy">
+						<div class="mb-1"><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">Date</span> <b>{fmt_date}</b></div>
+						<div><span class="text-gray-400 uppercase tracking-wider text-[10px] mr-2">No.</span> <b>{inv_num}</b></div>
+					</div>
+				</div>
+			</div>
+		</header>
 
-				<script>
-					function generatePDF() {{
-						const element = document.getElementById('invoice-content');
-						const opt = {{
-							margin: 0,
-							filename: '{file_name}',
-							image: {{ type: 'jpeg', quality: 1 }},
-							html2canvas: {{ scale: 2, useCORS: true, letterRendering: true, scrollY: 0 }},
-							jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-						}};
-						html2pdf().set(opt).from(element).save();
-					}}
-				</script>
-			</body>
-			</html>
-			"""
+		<main class="flex-grow relative z-10">
+			
+			<div class="flex mb-10 bg-gray-50 border-l-4 border-vesak-navy">
+				<div class="w-1/2 p-4 border-r border-gray-200">
+					<div class="text-[10px] font-bold text-vesak-gold uppercase mb-1">Billed To</div>
+					<div class="text-lg font-bold text-vesak-navy">{c_name}</div>
+					<div class="flex gap-4 mt-2 text-xs text-gray-600">
+						<div class="flex items-center gap-1"><i class="fas fa-user text-vesak-gold"></i> {c_gender}</div>
+						<div class="flex items-center gap-1"><i class="fas fa-birthday-cake text-vesak-gold"></i> {c_age} Yrs</div>
+					</div>
+				</div>
+				<div class="w-1/2 p-4 flex flex-col justify-center">
+					<div class="flex items-center gap-2 text-xs text-gray-600 mb-2">
+						<i class="fas fa-phone-alt text-vesak-gold w-4"></i> {c_mob}
+					</div>
+					<div class="flex items-start gap-2 text-xs text-gray-600">
+						<i class="fas fa-map-marker-alt text-vesak-gold w-4 mt-0.5"></i> 
+						<span class="leading-tight">{c_addr}</span>
+					</div>
+				</div>
+			</div>
+
+			<table class="w-full mb-8">
+				<thead>
+					<tr class="bg-vesak-navy text-white text-xs uppercase tracking-wider text-left">
+						<th class="p-3 w-3/5">Description</th>
+						<th class="p-3 w-2/5 text-right">Amount</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr class="border-b border-gray-100">
+						<td class="p-4 align-top">
+							<div class="font-bold text-sm text-gray-800">{clean_plan}</div>
+							{desc_col_html}
+						</td>
+						<td class="p-4 text-right font-bold text-sm text-gray-800 align-top">
+							{amount_col_html}
+						</td>
+					</tr>
+				</tbody>
+			</table>
+
+			<div class="grid grid-cols-2 gap-8">
+				<div>
+					<h4 class="text-xs font-bold text-vesak-navy uppercase border-b border-vesak-gold pb-1 mb-3">Services Included</h4>
+					<ul class="list-disc pl-4 space-y-1">{inc_html}</ul>
+				</div>
+				<div>
+					<h4 class="text-xs font-bold text-gray-400 uppercase border-b border-gray-200 pb-1 mb-3">Services Not Included</h4>
+					<ul class="columns-1 text-[10px] text-gray-400 space-y-1">{exc_html}</ul>
+				</div>
+			</div>
+
+			{notes_section}
+
+			<div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">
+				Thank you for choosing Vesak Care Foundation!
+			</div>
+		</main>
+
+		<footer class="relative z-10 mt-auto w-full">
+			<div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
+			
+			<div class="flex justify-between items-end text-xs text-gray-500">
+				<div>
+					<p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
+					<div class="flex gap-2">
+						<span>Pune</span><span class="text-vesak-gold">•</span>
+						<span>Mumbai</span><span class="text-vesak-gold">•</span>
+						<span>Kolhapur</span>
+					</div>
+				</div>
+	
+				<div class="flex items-center gap-6">
+					<a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+						<i class="fab fa-instagram text-lg"></i>
+						<span>@VesakCare</span>
+					</a>
+					
+					<a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+						<i class="fab fa-facebook text-lg"></i>
+						<span>@VesakCare</span>
+					</a>
+				</div>
+			</div>
+			
+			<div class="mt-4 w-full h-1 bg-vesak-navy"></div>
+		</footer>
+	</div>
+
+	<script>
+		function generatePDF() {{
+			const element = document.getElementById('invoice-content');
+			const opt = {{
+				margin: 0,
+				filename: '{file_name}',
+				image: {{ type: 'jpeg', quality: 1 }},
+				html2canvas: {{ scale: 2, useCORS: true, letterRendering: true, scrollY: 0 }},
+				jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+			}};
+			html2pdf().set(opt).from(element).save();
+		}}
+	</script>
+</body>
+</html>
+"""
             # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
             components.html(html_content, height=1000, scrolling=True)
             
@@ -1433,6 +1434,7 @@ if raw_file_obj:
                         if sel_dup:
                             row = df_hist[df_hist['Display'] == sel_dup].iloc[0]
                             st.info(f"Selected: {row['Customer Name']}")
+							
                             if st.button("Generate Duplicate PDF"):
                                 #html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
                                 # Prepare Data Dictionary for the new template
@@ -1503,4 +1505,3 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
-
