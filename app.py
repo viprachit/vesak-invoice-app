@@ -916,7 +916,7 @@ def render_invoice_ui(df_main, mode="standard"):
                     hist_date_str = str(last_match.get('Date', ''))
                     try:
                         # Remove suffixes st, nd, rd, th to parse
-						hist_date_str = str(last_match.get('Date', ''))
+						#hist_date_str = str(last_match.get('Date', ''))
                         clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
                         default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
                     except: pass # Keep today's date if parsing fails
@@ -1500,4 +1500,5 @@ if raw_file_obj:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
