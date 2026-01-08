@@ -996,8 +996,8 @@ def render_invoice_ui(df_main, mode="standard"):
 
     st.write(f"**Plan:** {c_plan} | **Ref:** {c_ref} | **Serial:** {c_serial}")
     
-	if conflict_exists and not chk_overwrite:
-		  st.warning(f"⚠️ Customer exists (Ref: {c_ref}, Serial: {c_serial}). Check 'Overwrite' to update.")
+    if conflict_exists and not chk_overwrite:
+         st.warning(f"⚠️ Customer exists (Ref: {c_ref}, Serial: {c_serial}). Check 'Overwrite' to update.")
 
 	col3, col4 = st.columns(2)
 	with col3:
@@ -1549,6 +1549,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
