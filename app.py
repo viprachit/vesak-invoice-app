@@ -819,7 +819,7 @@ def render_invoice_ui(df_main, mode="standard"):
         if use_filters:
             st.warning(f"No active customers found for {filter_date} in {filter_loc}.")
         else:
-            st.warning("No active customers found.")
+            st.warning("No active customers found in the file.")
         return
 
     selected_label = st.selectbox(f"Select Customer ({mode}):", [""] + list(df_view['Label'].unique()), key=f"sel_{mode}")
@@ -886,11 +886,10 @@ def render_invoice_ui(df_main, mode="standard"):
         df_history = pd.DataFrame(master_records)
 
         if not df_history.empty:
-																	   
             df_history['Ref_Norm'] = df_history['Ref. No.'].apply(normalize_id)
             df_history['Ser_Norm'] = df_history['Serial No.'].apply(normalize_id)
 			
-            # STRICT MATCH ON REF AND SERIAL ONLY (IGNORE INVOICE NO FOR DETECTION)																				   
+            # --- CRITICAL FIX: STRICT MATCH ON REF AND SERIAL ONLY (IGNORE INVOICE NO FOR DETECTION)																				   
             match_mask = (df_history['Ref_Norm'] == c_ref) & (df_history['Ser_Norm'] == c_serial)
             existing_matches = df_history[match_mask]
             
@@ -915,14 +914,14 @@ def render_invoice_ui(df_main, mode="standard"):
 						default_qty = int(str(raw_paid_val).strip())
 					else:
 						# Fallback to Regex if AD is empty (Old data)
-						#hist_details = str(last_match.get('Details', ''))
+						hist_details = str(last_match.get('Details', ''))
 						match_qty = re.search(r'Paid for\s*(\d+)', hist_details, re.IGNORECASE)
-						#if match_qty: default_qty = int(match_qty.group(1))
+						if match_qty: default_qty = int(match_qty.group(1))
 				except: pass
 				# ----------------------------------------------
 
 				# 4. Date (Try to parse back from "Jan. 23rd 2026" format)
-				#hist_date_str = str(last_match.get('Date', ''))
+				hist_date_str = str(last_match.get('Date', ''))
 				try:
 					# Remove suffixes st, nd, rd, th to parse
 					hist_date_str = str(last_match.get('Date', ''))
@@ -933,7 +932,11 @@ def render_invoice_ui(df_main, mode="standard"):
                 # Calculate Row Index for Overwrite (1-based index)
                 # +2 because dataframe is 0-based and sheet has header row
                 existing_row_idx = last_match.name + 2					 													  
-
+			else:
+                # --- NEW FIX: RESET TO 1 IF NO HISTORY FOUND ---
+                default_qty = 1
+                # -----------------------------------------------
+				 
 				try:
 					# We need to find the specific row index for the update
 					# Since we matched on Ref/Serial, we iterate to find the row index in the sheet
@@ -975,13 +978,13 @@ def render_invoice_ui(df_main, mode="standard"):
         # Actually, for data integrity, maybe keep Inv No disabled even during overwrite? 
         # Requirement said "Overwrite that particular column", usually implied editing details not Inv No.
         # But let's stick to the requested logic: Disable Create button, Enable Overwrite checkbox.																											
-        #is_inv_disabled = not chk_overwrite
+        is_inv_disabled = not chk_overwrite
         inv_input = st.text_input("Invoice Number", value=inv_final, disabled=is_inv_disabled, key=f"inv_n_{mode}")
 
     st.write(f"**Plan:** {c_plan} | **Ref:** {c_ref} | **Serial:** {c_serial}")
     
-    if conflict_exists and not chk_overwrite: 
-        st.warning(f"⚠️ Customer exists (Ref: {c_ref}, Serial: {c_serial}). Check 'Overwrite' to update.")
+    if conflict_exists and not chk_overwrite:
+		 st.warning(f"⚠️ Customer exists (Ref: {c_ref}, Serial: {c_serial}). Check 'Overwrite' to update.")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -1108,7 +1111,7 @@ def render_invoice_ui(df_main, mode="standard"):
         }
         
         if conflict_exists and chk_overwrite and existing_row_idx:
-            #record["UID"] = df_history.iloc[existing_row_idx-2]["UID"] 
+            record["UID"] = df_history.iloc[existing_row_idx-2]["UID"] 
             try:
                 actual_uid = sheet_obj.cell(existing_row_idx, 1).value
                 record["UID"] = actual_uid
@@ -1142,7 +1145,7 @@ def render_invoice_ui(df_main, mode="standard"):
             # --- LOGIC FOR PDF DESCRIPTION TEXT ---
             pdf_display_plan = c_plan # Default fallback
             sub_srv_txt = str(row.get('Sub Service', '')).strip()
-            			
+			
             if c_plan == "Plan A: Patient Attendant Care":
                 pdf_display_plan = "Patient Care Service"
             elif c_plan == "Plan B: Skilled Nursing":
@@ -1436,7 +1439,7 @@ if raw_file_obj:
                             st.info(f"Selected: {row['Customer Name']}")
 							
                             if st.button("Generate Duplicate PDF"):
-                                #html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
+                                html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
                                 # Prepare Data Dictionary for the new template
                                 # Note: Google Sheet Headers must match keys used in construct_offline_invoice_html
                                 data_map = row.to_dict()
