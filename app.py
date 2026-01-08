@@ -345,6 +345,153 @@ def convert_html_to_pdf(source_html):
     pisa_status = pisa.CreatePDF(source_html, dest=result)
     if pisa_status.err: return None
     return result.getvalue()
+	
+# ==========================================
+# NEW: HIGH-QUALITY OFFLINE PDF TEMPLATE
+# ==========================================
+def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
+    """
+    Generates a Table-based HTML (xhtml2pdf compatible) that mimics the Tailwind Design.
+    """
+    # Extract Data
+    inv_num = data_dict.get("Invoice Number", "")
+    date_str = data_dict.get("Date", "")
+    c_name = data_dict.get("Customer Name", "")
+    c_age = data_dict.get("Age", "")
+    c_gender = data_dict.get("Gender", "")
+    c_mob = data_dict.get("Mobile", "")
+    c_addr = data_dict.get("Address", "")
+    
+    # Logic for Plan Display
+    plan_name = data_dict.get("Plan", "")
+    shift = data_dict.get("Shift", "")
+    period = data_dict.get("Period", "")
+    
+    # Financials
+    try: 
+        amt_paid = float(data_dict.get("Amount Paid", 0))
+        amt_paid_str = "{:,.0f}".format(amt_paid)
+    except: amt_paid_str = "0"
+    
+    # Description Text Construction
+    desc_html = f"<b>{plan_name}</b><br/>"
+    if shift: desc_html += f"<br/><span style='color:#555;'>{shift}</span>"
+    if period: desc_html += f"<br/><i>{period}</i>"
+    
+    # Amount Column Construction
+    details = data_dict.get("Details", "")
+    qty_val = data_dict.get("Paid for Raw", 1) # Fallback if missing
+    
+    # Colors
+    col_navy = "#002147"
+    col_gold = "#C5A065"
+    
+    html = f"""
+    <html>
+    <head>
+        <style>
+            @page {{ size: a4 portrait; margin: 1cm; }}
+            body {{ font-family: Helvetica, sans-serif; font-size: 12px; color: #333; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            td {{ vertical-align: top; padding: 5px; }}
+            
+            .header-title {{ font-size: 24px; color: {col_navy}; font-weight: bold; }}
+            .sub-text {{ font-size: 10px; color: #666; }}
+            .label {{ font-size: 9px; color: #999; text-transform: uppercase; }}
+            .value {{ font-size: 12px; font-weight: bold; color: #000; }}
+            
+            .bill-box {{ background-color: #f6f8fa; border-left: 5px solid {col_navy}; padding: 10px; margin-top: 20px; margin-bottom: 20px; }}
+            
+            .tbl-header th {{ background-color: {col_navy}; color: white; padding: 8px; text-align: left; font-size: 10px; text-transform: uppercase; }}
+            .tbl-row td {{ border-bottom: 1px solid #eee; padding: 10px; }}
+            
+            .footer {{ margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; font-size: 10px; color: #777; }}
+        </style>
+    </head>
+    <body>
+        <table>
+            <tr>
+                <td width="60%">
+                    <img src="data:image/png;base64,{logo_b64}" width="80"><br/>
+                    <span class="header-title">Vesak Care Foundation</span><br/>
+                    <span class="sub-text">
+                        Web: vesakcare.com | Email: vesakcare@gmail.com<br/>
+                        Phone: +91 7777 000 878
+                    </span>
+                </td>
+                <td width="40%" align="right">
+                    <h2 style="color: #ccc; letter-spacing: 5px; margin-bottom: 5px;">{doc_type}</h2>
+                    <span class="label">Date</span> <span class="value">{date_str}</span><br/>
+                    <span class="label">No.</span> <span class="value">{inv_num}</span>
+                </td>
+            </tr>
+        </table>
+
+        <div class="bill-box">
+            <table>
+                <tr>
+                    <td width="50%">
+                        <b style="color: {col_gold}; font-size: 10px;">BILLED TO</b><br/>
+                        <span style="font-size: 14px; font-weight: bold; color: {col_navy};">{c_name}</span><br/>
+                        <span style="font-size: 11px; color: #555;">{c_gender} | {c_age} Yrs</span>
+                    </td>
+                    <td width="50%">
+                        <b style="font-size: 11px;">Phone:</b> {c_mob}<br/>
+                        <b style="font-size: 11px;">Address:</b> {c_addr}
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <table class="tbl-header">
+            <tr>
+                <th width="65%">Description</th>
+                <th width="35%" align="right">Amount</th>
+            </tr>
+        </table>
+        <table>
+            <tr class="tbl-row">
+                <td width="65%">
+                    {desc_html}
+                    <br/><br/>
+                    <span style="font-size: 10px; color: #777;">{data_dict.get("Notes / Remarks", "")}</span>
+                </td>
+                <td width="35%" align="right">
+                    <div style="font-size: 14px; font-weight: bold;">Rs. {amt_paid_str}</div>
+                    <div style="font-size: 10px; color: #777; margin-top: 5px;">{details}</div>
+                </td>
+            </tr>
+        </table>
+
+        <table style="margin-top: 10px;">
+            <tr>
+                <td align="right">
+                    <span style="font-size: 14px; font-weight: bold; color: {col_navy};">TOTAL: Rs. {amt_paid_str}</span>
+                </td>
+            </tr>
+        </table>
+        
+        <div style="text-align: center; margin-top: 40px; color: #999; font-style: italic; font-size: 10px;">
+            Thank you for choosing Vesak Care Foundation!
+        </div>
+
+        <div class="footer">
+            <table>
+                <tr>
+                    <td>
+                        <b>Our Offices</b><br/>
+                        Pune • Mumbai • Kolhapur
+                    </td>
+                    <td align="right">
+                        @VesakCare
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </body>
+    </html>
+    """
+    return html
 
 def normalize_columns(df, aliases):
     df.columns = df.columns.astype(str).str.strip()
@@ -403,40 +550,40 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         # --------------------------------------------------
 
         row_values = [
-            final_uid,                                      # A
-            data_dict.get("Serial No.", ""),                # B
-            data_dict.get("Ref. No.", ""),                  # C
-            data_dict.get("Invoice Number", ""),            # D
-            data_dict.get("Date", ""),                      # E
-            data_dict.get("Generated At", ""),              # F
-            data_dict.get("Customer Name", ""),             # G
-            data_dict.get("Age", ""),                       # H
-            data_dict.get("Gender", ""),                    # I
-            data_dict.get("Location", ""),                  # J
-            data_dict.get("Address", ""),                   # K
-            data_dict.get("Mobile", ""),                    # L
-            data_dict.get("Plan", ""),                      # M
-            data_dict.get("Shift", ""),                     # N
-            data_dict.get("Recurring Service", ""),         # O
-            data_dict.get("Period", ""),                    # P
-            data_dict.get("Visits", ""),                    # Q
-            data_dict.get("Amount", ""),                    # R
-            data_dict.get("Notes / Remarks", ""),           # S
-            data_dict.get("Generated By", ""),              # T
-            data_dict.get("Amount Paid", ""),               # U
-            data_dict.get("Details", ""),                   # V
-            data_dict.get("Service Started", ""),           # W (DD-MM-YYYY)
-            data_dict.get("Service Ended", ""),             # X (DD-MM-YYYY)
-            data_dict.get("Referral Code", ""),             # Y
-            data_dict.get("Referral Name", ""),             # Z
-            data_dict.get("Referral Credit", ""),           # AA
-            formula_net_amount,                             # AB
-            "",                                             # AC
-            qty_extracted,                                  # AD (Updated with RAW)
-            formula_earnings,                               # AE
-            "",                                             # AF
-            "",                                             # AG
-            ""                                              # AH
+            final_uid,                              # A
+            data_dict.get("Serial No.", ""),        # B
+            data_dict.get("Ref. No.", ""),          # C
+            data_dict.get("Invoice Number", ""),    # D
+            data_dict.get("Date", ""),              # E
+            data_dict.get("Generated At", ""),      # F
+            data_dict.get("Customer Name", ""),     # G
+            data_dict.get("Age", ""),               # H
+            data_dict.get("Gender", ""),            # I
+            data_dict.get("Location", ""),          # J
+            data_dict.get("Address", ""),           # K
+            data_dict.get("Mobile", ""),            # L
+            data_dict.get("Plan", ""),              # M
+            data_dict.get("Shift", ""),             # N
+            data_dict.get("Recurring Service", ""), # O
+            data_dict.get("Period", ""),            # P
+            data_dict.get("Visits", ""),            # Q
+            data_dict.get("Amount", ""),            # R
+            data_dict.get("Notes / Remarks", ""),   # S
+            data_dict.get("Generated By", ""),      # T
+            data_dict.get("Amount Paid", ""),       # U
+            data_dict.get("Details", ""),           # V
+            data_dict.get("Service Started", ""),   # W (DD-MM-YYYY)
+            data_dict.get("Service Ended", ""),     # X (DD-MM-YYYY)
+            data_dict.get("Referral Code", ""),     # Y
+            data_dict.get("Referral Name", ""),     # Z
+            data_dict.get("Referral Credit", ""),   # AA
+            formula_net_amount,                     # AB
+            "",                                     # AC
+            qty_extracted,                          # AD (Updated with RAW)
+            formula_earnings,                       # AE
+            "",                                     # AF
+            "",                                     # AG
+            ""                                      # AH
         ]
         sheet_obj.append_row(row_values, value_input_option='USER_ENTERED')
         return True
@@ -702,7 +849,7 @@ def render_invoice_ui(df_main, mode="standard"):
     # Overwrite Checkbox (Moved up to control Disabled state)
     chk_overwrite = st.checkbox("Overwrite Existing Invoice", key=f"ow_{mode}")
 
-    # --- CHANGED: LOGIC MOVED UP TO FETCH DATA BEFORE RENDERING UI ---
+    # --- INVOICE CALCULATION LOGIC ---
     # Default Values based on input file
     inv_final = ""
     default_date = datetime.date.today()
@@ -727,6 +874,7 @@ def render_invoice_ui(df_main, mode="standard"):
             sheet_obj.append_row(SHEET_HEADERS)
     except Exception as e: st.error(f"Connection Error: {e}"); return
     
+	df_history = pd.DataFrame()						   
     if sheet_obj:
         master_records = sheet_obj.get_all_records()
         df_history = pd.DataFrame(master_records)
@@ -768,6 +916,7 @@ def render_invoice_ui(df_main, mode="standard"):
                     hist_date_str = str(last_match.get('Date', ''))
                     try:
                         # Remove suffixes st, nd, rd, th to parse
+						hist_date_str = str(last_match.get('Date', ''))
                         clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
                         default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
                     except: pass # Keep today's date if parsing fails
@@ -1050,13 +1199,16 @@ def render_invoice_ui(df_main, mode="standard"):
             body {{ background: white; -webkit-print-color-adjust: exact; }}
             .invoice-page {{ margin: 0; box-shadow: none; width: 100%; height: 100%; padding: 40px; }}
             .no-print {{ display: none !important; }}
-            .watermark-container {{ opacity: 0.015 !important; }}
+            .watermark-container {{ opacity: 0.04 !important; }}
         }}
     </style>
 </head>
 <body class="py-10">
-    <div class="max-w-[210mm] mx-auto mb-6 flex justify-end no-print px-4">
-        <button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest">
+    <div class="max-w-[210mm] mx-auto mb-6 flex justify-end gap-3 no-print px-4">
+        <button onclick="window.print()" class="bg-gray-600 text-white px-5 py-2 rounded shadow hover:bg-gray-800 transition font-bold text-xs uppercase tracking-widest">
+            <i class="fas fa-print mr-2"></i> Print / Save Vector PDF
+        </button>
+		<button onclick="generatePDF()" class="bg-vesak-navy text-white px-6 py-2 rounded shadow hover:bg-vesak-gold transition font-bold text-xs uppercase tracking-widest">
             <i class="fas fa-download mr-2"></i> Download PDF
         </button>
     </div>
@@ -1079,6 +1231,16 @@ def render_invoice_ui(df_main, mode="standard"):
                             <span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Web</span> vesakcare.com</span>
                             <span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Email</span> vesakcare@gmail.com</span>
                             <span><span class="font-bold text-vesak-gold uppercase w-12 inline-block">Phone</span> +91 7777 000 878</span>
+										  
+									  
+								  
+													
+																														 
+																	 
+																																							   
+																																				
+									  
+								  
                         </div>
                     </div>
                 </div>
@@ -1175,6 +1337,11 @@ def render_invoice_ui(df_main, mode="standard"):
                         <i class="fab fa-facebook text-lg"></i>
                         <span>@VesakCare</span>
                     </a>
+								  
+							  
+						
+																		 
+							 
                 </div>
             </div>
             
@@ -1188,8 +1355,8 @@ def render_invoice_ui(df_main, mode="standard"):
             const opt = {{
                 margin: 0,
                 filename: '{file_name}',
-                image: {{ type: 'jpeg', quality: 0.98 }},
-                html2canvas: {{ scale: 1.6, useCORS: true, scrollY: 0 }},
+                image: {{ type: 'jpeg', quality: 1 }},
+                html2canvas: {{ scale: 2, useCORS: true, letterRendering: true, scrollY: 0 }},
                 jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
             }};
             html2pdf().set(opt).from(element).save();
@@ -1262,12 +1429,26 @@ if raw_file_obj:
                         if sel_dup:
                             row = df_hist[df_hist['Display'] == sel_dup].iloc[0]
                             st.info(f"Selected: {row['Customer Name']}")
+							
                             if st.button("Generate Duplicate PDF"):
-                                html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
+                                #html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
+                                # Prepare Data Dictionary for the new template
+                                # Note: Google Sheet Headers must match keys used in construct_offline_invoice_html
+                                data_map = row.to_dict()
+                                
+                                # Ensure specific fields are mapped if column names differ
+                                data_map['Paid for Raw'] = row.get('Paid for', 1) 
+                                
+                                # Use new High-Quality Generator
+                                html_dup = construct_offline_invoice_html(data_map, logo_b64, doc_type="DUPLICATE INVOICE")
                                 pdf_dup = convert_html_to_pdf(html_dup)
-                                st.download_button("Download PDF", pdf_dup, file_name=f"Duplicate-{row['Invoice Number']}.pdf")
+                                
+                                if pdf_dup:
+                                    st.download_button("Download PDF", pdf_dup, file_name=f"Duplicate-{row['Invoice Number']}.pdf")
+                                else:
+                                    st.error("Error generating PDF file.")
                     else: st.warning("No records found in this month.")
-                except: st.error("Could not load history for this month.")
+                except Exception as e: st.error(f"Could not load history for this month: {e}")
 
         with tab4:
             st.header("🛠 Manage Services")
