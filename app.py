@@ -759,7 +759,15 @@ elif data_source == "OneDrive Link":
     if current_url: raw_file_obj = robust_file_downloader(current_url)
 
 # --- MAIN TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🧾 Generate Invoice", "🆕 Force New Invoice", "©️ Duplicate Invoice", "🛠 Manage Services", "💰 Nurse Manage"])
+# --- UPDATED: Added Tab 6 "Create Agreements" ---
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🧾 Generate Invoice", 
+    "🆕 Force New Invoice", 
+    "©️ Duplicate Invoice", 
+    "🛠 Manage Services", 
+    "💰 Nurse Manage",
+    "📝 Create Agreements"
+])
 
 # ==========================================
 # CORE INVOICE FUNCTION
@@ -898,54 +906,59 @@ def render_invoice_ui(df_main, mode="standard"):
                 conflict_exists = True
                 last_match = existing_matches.iloc[-1]
                     
-				# --- FETCHING EXISTING DATA ---
-				# 1. Invoice Number (Must stay locked)
-				inv_final = str(last_match['Invoice Number'])
-				
-				# 2. Notes
-				hist_note = str(last_match.get('Notes / Remarks', '')).strip()
-				if hist_note: default_notes = hist_note
-
-				# 3. Paid Units (Extract from Details string)
-				# --- NEW FIX: Try to get from 'Paid for' Column (AD) first ---
-				try:
-					raw_paid_val = last_match.get('Paid for', '')
-					if raw_paid_val and str(raw_paid_val).strip().isdigit():
-						default_qty = int(str(raw_paid_val).strip())
-					else:
-						# Fallback to Regex if AD is empty (Old data)
-						hist_details = str(last_match.get('Details', ''))
-						match_qty = re.search(r'Paid for\s*(\d+)', hist_details, re.IGNORECASE)
-						if match_qty: default_qty = int(match_qty.group(1))
-				except: pass
-				# ----------------------------------------------
-
-				# 4. Date (Try to parse back from "Jan. 23rd 2026" format)
-				hist_date_str = str(last_match.get('Date', ''))
-				try:
-					# Remove suffixes st, nd, rd, th to parse
-					hist_date_str = str(last_match.get('Date', ''))
-					clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
-					default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
-				except: pass # Keep today's date if parsing fails
+                # --- FETCHING EXISTING DATA ---
+                # 1. Invoice Number (Must stay locked)
+                inv_final = str(last_match.get('Invoice Number', ''))
                 
+                # 2. Notes
+                hist_note = str(last_match.get('Notes / Remarks', '')).strip()
+                if hist_note: default_notes = hist_note
+
+                # 3. Paid Units (Extract from Details string)
+				# --- NEW FIX: Try to get from 'Paid for' Column (AD) first ---																   
+                try:
+                    raw_paid_val = last_match.get('Paid for', '')
+                    if raw_paid_val and str(raw_paid_val).strip().isdigit():
+                        default_qty = int(str(raw_paid_val).strip())
+                    else:
+                        # Fallback to Regex if AD is empty (Old data)
+                        hist_details = str(last_match.get('Details', ''))
+                        match_qty = re.search(r'Paid for\s*(\d+)', hist_details, re.IGNORECASE)
+                        if match_qty: default_qty = int(match_qty.group(1))
+                except: pass
+				# ----------------------------------------------													
+
+                # 4. Date (Try to parse back from "Jan. 23rd 2026" format)
+                try:
+                    hist_date_str = str(last_match.get('Date', ''))
+		
+                    # Remove suffixes st, nd, rd, th to parse
+													
+                    clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
+                    default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
+                except: pass  # Keep today's date if parsing fails
+
                 # Calculate Row Index for Overwrite (1-based index)
-                # +2 because dataframe is 0-based and sheet has header row
-                existing_row_idx = last_match.name + 2					 													  
-			else:
+                # Since we matched on Ref/Serial, we iterate to find the row index in the sheet
+                # Note: This finds the *last* match if multiple exist
+                try:
+                    # GSpread row index is roughly (dataframe index + 2) if using get_all_records which treats row 1 as header
+                    # However, strictly matching by exact cell content is safer
+                    cell_match = sheet_obj.find(inv_final, in_column=4)
+                    if cell_match: existing_row_idx = cell_match.row
+                except: pass
+            else:
                 # --- NEW FIX: RESET TO 1 IF NO HISTORY FOUND ---
                 default_qty = 1
                 # -----------------------------------------------
-				 
-				try:
 					# We need to find the specific row index for the update
 					# Since we matched on Ref/Serial, we iterate to find the row index in the sheet
 					# (Note: gspread row indices are 1-based, dataframe is 0-based)
-					existing_row_idx = last_match.name + 2 
+					#existing_row_idx = last_match.name + 2 
 				#except: pass
-			else:
+			#else:
 				# --- NEW FIX: RESET TO 1 IF NO HISTORY FOUND ---
-				default_qty = 1
+				#default_qty = 1
 				# -----------------------------------------------
 
     if not conflict_exists:
@@ -978,7 +991,7 @@ def render_invoice_ui(df_main, mode="standard"):
         # Actually, for data integrity, maybe keep Inv No disabled even during overwrite? 
         # Requirement said "Overwrite that particular column", usually implied editing details not Inv No.
         # But let's stick to the requested logic: Disable Create button, Enable Overwrite checkbox.																											
-        is_inv_disabled = not chk_overwrite
+        #is_inv_disabled = not chk_overwrite
         inv_input = st.text_input("Invoice Number", value=inv_final, disabled=is_inv_disabled, key=f"inv_n_{mode}")
 
     st.write(f"**Plan:** {c_plan} | **Ref:** {c_ref} | **Serial:** {c_serial}")
@@ -1005,20 +1018,20 @@ def render_invoice_ui(df_main, mode="standard"):
         exc_final = st.multiselect("Excluded (Click X to remove):", options=exc_list, default=exc_list, key=f"exc_{mode}_{c_ref}")
         exc_text_for_pdf = ", ".join(exc_final)
 
-    b1, b2, b3 = st.columns(3)
+    # --- UPDATED: Removed Nurse/Patient Buttons from here ---
     btn_save = False
     
-    with b1:
-        if conflict_exists:
-            if chk_overwrite:
-                if st.button("Overwrite Invoice", type="primary", key=f"b_ov_{mode}"): btn_save = True
-            else:
-                st.button("Create Invoice", disabled=True, key=f"b_cr_dis_{mode}")
-        else:
-            if st.button("Create Invoice", type="primary", key=f"b_cr_{mode}"): btn_save = True
-            
-    with b2: btn_nurse = st.button("Nurse Agreement", key=f"b_nu_{mode}")
-    with b3: btn_patient = st.button("Patient Agreement", key=f"b_pa_{mode}")
+    #with b1:
+	if conflict_exists:
+		if chk_overwrite:
+			if st.button("Overwrite Invoice", type="primary", key=f"b_ov_{mode}"): btn_save = True
+		else:
+			st.button("Create Invoice", disabled=True, key=f"b_cr_dis_{mode}")
+	else:
+		if st.button("Create Invoice", type="primary", key=f"b_cr_{mode}"): btn_save = True
+		
+#with b2: btn_nurse = st.button("Nurse Agreement", key=f"b_nu_{mode}")
+#with b3: btn_patient = st.button("Patient Agreement", key=f"b_pa_{mode}")
 
     if btn_save:
         rate = float(row.get('Unit Rate', 0))
@@ -1124,9 +1137,9 @@ def render_invoice_ui(df_main, mode="standard"):
             st.success("Created New Row!")
         st.balloons()
 
-    if btn_save or btn_nurse or btn_patient:
-        doc_type = "Invoice" if btn_save else ("Nurse" if btn_nurse else "Patient")
-        display_type = "NURSE AGREEMENT" if btn_nurse else "PATIENT AGREEMENT"
+    if btn_save:
+        doc_type = "Invoice"
+        
         
         rate = float(row.get('Unit Rate', 0))
         total = rate * billing_qty
@@ -1135,55 +1148,55 @@ def render_invoice_ui(df_main, mode="standard"):
         # Calculate file name here so we can pass it to the JS/HTML
         file_name = generate_filename(doc_type, inv_input, c_name)
 
-        if doc_type == "Invoice":
-            # --- PREPARE DATA FOR HTML INJECTION ---
-            desc_col_html = construct_description_html(row)
-            amount_col_html = construct_amount_html(row, billing_qty)
-            inc_def = inc_list
-            final_exc = exc_final
-            
-            # --- LOGIC FOR PDF DESCRIPTION TEXT ---
-            pdf_display_plan = c_plan # Default fallback
-            sub_srv_txt = str(row.get('Sub Service', '')).strip()
-			
-            if c_plan == "Plan A: Patient Attendant Care":
-                pdf_display_plan = "Patient Care Service"
-            elif c_plan == "Plan B: Skilled Nursing":
-                pdf_display_plan = "Nurse Service"
-            elif c_plan == "Plan C: Chronic Management":
-                pdf_display_plan = "Chronic and Holistic Healthcare Service"
-            elif c_plan == "Plan D: Elderly Companion":
-                pdf_display_plan = "Elderly and Well-being Care"
-            elif c_plan == "Plan E: Maternal & Newborn":
-                pdf_display_plan = "Maternal & Newborn - Support for Women during and after Pregnancy"
-            elif c_plan == "Plan F: Rehabilitative Care":
-                pdf_display_plan = f"Rehabilitative Care for {sub_srv_txt}"
-            elif c_plan == "A-la-carte Services":
-                pdf_display_plan = f"Other Service - {sub_srv_txt}"
-            
-            clean_plan = pdf_display_plan
-            # --------------------------------------
-            
-            final_notes = notes
-            
-            # Helper placeholders for images (Empty strings to avoid crash if not defined)
-            ig_b64 = "" 
-            fb_b64 = ""
-            
-            # Map variables for the specific HTML template provided
-            fmt_date = pdf_date_str
-            inv_num = inv_input
-            
-            # HTML Lists Preparation
-            inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
-            exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
+        
+		# --- PREPARE DATA FOR HTML INJECTION ---
+		desc_col_html = construct_description_html(row)
+		amount_col_html = construct_amount_html(row, billing_qty)
+		inc_def = inc_list
+		final_exc = exc_final
+		
+		# --- LOGIC FOR PDF DESCRIPTION TEXT ---
+		pdf_display_plan = c_plan # Default fallback
+		sub_srv_txt = str(row.get('Sub Service', '')).strip()
+	
+		if c_plan == "Plan A: Patient Attendant Care":
+			pdf_display_plan = "Patient Care Service"
+		elif c_plan == "Plan B: Skilled Nursing":
+			pdf_display_plan = "Nurse Service"
+		elif c_plan == "Plan C: Chronic Management":
+			pdf_display_plan = "Chronic and Holistic Healthcare Service"
+		elif c_plan == "Plan D: Elderly Companion":
+			pdf_display_plan = "Elderly and Well-being Care"
+		elif c_plan == "Plan E: Maternal & Newborn":
+			pdf_display_plan = "Maternal & Newborn - Support for Women during and after Pregnancy"
+		elif c_plan == "Plan F: Rehabilitative Care":
+			pdf_display_plan = f"Rehabilitative Care for {sub_srv_txt}"
+		elif c_plan == "A-la-carte Services":
+			pdf_display_plan = f"Other Service - {sub_srv_txt}"
+		
+		clean_plan = pdf_display_plan
+		# --------------------------------------
+		
+		final_notes = notes
+		
+		# Helper placeholders for images (Empty strings to avoid crash if not defined)
+		ig_b64 = "" 
+		fb_b64 = ""
+		
+		# Map variables for the specific HTML template provided
+		fmt_date = pdf_date_str
+		inv_num = inv_input
+		
+		# HTML Lists Preparation
+		inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_def])
+		exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in final_exc])
 
-            notes_section = ""
-            if final_notes:
-                notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES:</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
+		notes_section = ""
+		if final_notes:
+			notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES:</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
 
-            # --- WEB PREVIEW TEMPLATE (Tailwind CSS) ---
-            html_content = f"""
+		# --- WEB PREVIEW TEMPLATE (Tailwind CSS) ---
+		html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1339,7 +1352,7 @@ def render_invoice_ui(df_main, mode="standard"):
 						<span>Kolhapur</span>
 					</div>
 				</div>
-	
+
 				<div class="flex items-center gap-6">
 					<a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
 						<i class="fab fa-instagram text-lg"></i>
@@ -1373,32 +1386,9 @@ def render_invoice_ui(df_main, mode="standard"):
 </body>
 </html>
 """
-            # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
-            components.html(html_content, height=1000, scrolling=True)
-            
-        else:
-             html_content = f"""
-            <!DOCTYPE html><html><head><style>
-                @page {{ size: a4 portrait; margin: 1cm; }}
-                body {{ font-family: 'Helvetica', sans-serif; }}
-                .header {{ text-align: center; }}
-            </style></head><body>
-                <div class="header">
-                    <img src="data:image/png;base64,{logo_b64}" width="100">
-                    <h2>Vesak Care Foundation</h2>
-                </div>
-                <h3>{display_type}</h3>
-                <p><strong>Ref:</strong> {c_ref}</p>
-                <p><strong>Date:</strong> {pdf_date_str}</p>
-                <br><br><br>
-                <p>Authorized Signatory</p>
-            </body></html>
-            """
-             # For Agreements, stick to old method or update if needed
-             pdf_bytes = convert_html_to_pdf(html_content)
-             if pdf_bytes:
-                st.download_button(f"⬇️ Download {doc_type} PDF", data=pdf_bytes, file_name=file_name, mime="application/pdf")
-
+		# RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
+		components.html(html_content, height=1000, scrolling=True)
+		
 if raw_file_obj:
     try:
         filename = getattr(raw_file_obj, "name", "data.xlsx")
@@ -1439,7 +1429,7 @@ if raw_file_obj:
                             st.info(f"Selected: {row['Customer Name']}")
 							
                             if st.button("Generate Duplicate PDF"):
-                                html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
+                                #html_dup = f"""<!DOCTYPE html><html><body><h2>DUPLICATE INVOICE: {row['Invoice Number']}</h2><p>Customer: {row['Customer Name']}</p><p>Amount: {row['Amount Paid']}</p></body></html>"""
                                 # Prepare Data Dictionary for the new template
                                 # Note: Google Sheet Headers must match keys used in construct_offline_invoice_html
                                 data_map = row.to_dict()
@@ -1507,7 +1497,55 @@ if raw_file_obj:
             else:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
+        # --- UPDATED: Tab 6 Logic ---
+        with tab6:
+            st.header("📝 Create Agreements")
+            
+            # --- Logic to Select Customer (Replicated from Tab 1 to act independently) ---
+            use_filt_ag = st.checkbox("🔍 Enable Search Filters (Date/Location)", key="use_filt_ag")
+            df_ag = df.copy()
+            
+            if use_filt_ag:
+                c1, c2 = st.columns(2)
+                with c1: f_dt = st.date_input("Filter Date:", value=datetime.date.today(), key="ag_dt")
+                with c2: 
+                    u_locs = ["All"] + sorted(list(df['Location'].astype(str).unique()))
+                    f_lc = st.selectbox("Filter Location:", u_locs, key="ag_lc")
+                
+                if 'Call Date' in df_ag.columns:
+                    df_ag['TempDate'] = pd.to_datetime(df_ag['Call Date'], errors='coerce').dt.date
+                    df_ag = df_ag[df_ag['TempDate'] == f_dt]
+                if f_lc != "All": df_ag = df_ag[df_ag['Location'].astype(str) == f_lc]
+            
+            df_ag['Ref_Clean'] = df_ag['Ref. No.'].astype(str).str.strip()
+            df_ag['Label'] = df_ag['Name'].astype(str) + " (" + df_ag['Mobile'].astype(str) + ")"
+            
+            if df_ag.empty: st.warning("No customers found.")
+            else:
+                sel_cust_ag = st.selectbox("Select Customer for Agreement:", [""] + list(df_ag['Label'].unique()), key="sel_ag")
+                if sel_cust_ag:
+                    row_ag = df_ag[df_ag['Label'] == sel_cust_ag].iloc[0]
+                    # Display basics
+                    st.info(f"Selected: {row_ag['Name']} | Ref: {normalize_id(row_ag.get('Ref. No.'))}")
+                    
+                    c_ref_ag = normalize_id(row_ag.get('Ref. No.', ''))
+                    pdf_date_str = format_date_with_suffix(datetime.date.today())
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1: 
+                        if st.button("Nurse Agreement", key="btn_nu_ag"):
+                            display_type = "NURSE AGREEMENT"
+                            file_name = generate_filename("Nurse", "AGR", row_ag['Name'])
+                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
+                            pdf_bytes = convert_html_to_pdf(html_content)
+                            if pdf_bytes: st.download_button(f"⬇️ Download Nurse Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+                    
+                    with col_b2: 
+                        if st.button("Patient Agreement", key="btn_pa_ag"):
+                            display_type = "PATIENT AGREEMENT"
+                            file_name = generate_filename("Patient", "AGR", row_ag['Name'])
+                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
+                            pdf_bytes = convert_html_to_pdf(html_content)
+                            if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+
     except Exception as e: st.error(f"Error: {e}")
-
-
-
