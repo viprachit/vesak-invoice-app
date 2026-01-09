@@ -778,113 +778,100 @@ def render_invoice_ui(df_main, mode="standard"):
     master_id = extract_id_from_url(sys_config.get("master_sheet_url"))
 
     if not master_id or not client:
-        st.error("❌ Master Workbook not linked in Sidebar Settings.")
-        return
+        st.error("❌ Master Workbook not linked in Sidebar Settings."); return
 
     # --- FILTER SECTION ---
     st.subheader("1. Select Customer")
 
-    use_filters = st.checkbox(
-        "🔍 Enable Search Filters (Date/Location)",
-        key=f"use_filt_{mode}"
-    )
+    # Point 1: Toggle to Enable Filters (Default: OFF -> Show All)
+    use_filters = st.checkbox("🔍 Enable Search Filters (Date/Location)", key=f"use_filt_{mode}")
 
     df_view = df_main.copy()
 
     if use_filters:
+        # 6. Filter Functionality (Active only when checkbox ticked)
         col_filt1, col_filt2 = st.columns(2)
-
         with col_filt1:
-            filter_date = st.date_input(
-                "Filter Date (Search by Date):",
-                value=datetime.date.today(),
-                key=f"f_date_{mode}"
-            )
-
+            filter_date = st.date_input("Filter Date (Search by Date):", value=datetime.date.today(), key=f"f_date_{mode}")
         with col_filt2:
-            unique_locs = ["All"] + sorted(
-                list(df_main['Location'].astype(str).unique())
-            )
-            filter_loc = st.selectbox(
-                "Filter Location:",
-                unique_locs,
-                key=f"f_loc_{mode}"
-            )
+            unique_locs = ["All"] + sorted(list(df_main['Location'].astype(str).unique()))
+            filter_loc = st.selectbox("Filter Location:", unique_locs, key=f"f_loc_{mode}")
 
+        # Apply Filter Logic
         if 'Call Date' in df_view.columns:
-            df_view['TempDate'] = pd.to_datetime(
-                df_view['Call Date'],
-                errors='coerce'
-            ).dt.date
+            df_view['TempDate'] = pd.to_datetime(df_view['Call Date'], errors='coerce').dt.date
             df_view = df_view[df_view['TempDate'] == filter_date]
-
+        
         if filter_loc != "All":
-            df_view = df_view[
-                df_view['Location'].astype(str) == filter_loc
-            ]
+            df_view = df_view[df_view['Location'].astype(str) == filter_loc]
 
+    # --- CRITICAL POINT 2: EXCLUSION LOGIC (CACHED) ---
     current_mmm_yy = datetime.date.today().strftime("%b-%y")
+    
+    # Use cached function to prevent 429 Quota Exceeded error
     excluded_refs = get_cached_exclusion_list(master_id, current_mmm_yy)
 
+    # Apply Exclusion to df_view
     if excluded_refs:
         df_view['Ref_Norm_View'] = df_view['Ref. No.'].apply(normalize_id)
         df_view['Ser_Norm_View'] = df_view['Serial No.'].apply(normalize_id)
-        df_view['Unique_Key'] = (
-            df_view['Ref_Norm_View'] + "-" + df_view['Ser_Norm_View']
-        )
-        df_view = df_view[
-            ~df_view['Unique_Key'].isin(excluded_refs)
-        ]
-        df_view = df_view.drop(
-            columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key']
-        )
+        df_view['Unique_Key'] = df_view['Ref_Norm_View'] + "-" + df_view['Ser_Norm_View']
+        df_view = df_view[~df_view['Unique_Key'].isin(excluded_refs)]
+        df_view = df_view.drop(columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key'])
 
+    # Dropdown to select Customer
     df_view['Ref_Clean'] = df_view['Ref. No.'].astype(str).str.strip()
-    df_view['Label'] = (
-        df_view['Name'].astype(str)
-        + " ("
-        + df_view['Mobile'].astype(str)
-        + ")"
-    )
-
+    df_view['Label'] = df_view['Name'].astype(str) + " (" + df_view['Mobile'].astype(str) + ")"
+    
     if df_view.empty:
-        st.warning("No active customers found.")
+        if use_filters:
+            st.warning(f"No active customers found for {filter_date} in {filter_loc}.")
+        else:
+            st.warning("No active customers found in the file.")
         return
 
-    selected_label = st.selectbox(
-        f"Select Customer ({mode}):",
-        [""] + list(df_view['Label'].unique()),
-        key=f"sel_{mode}"
-    )
-
-    if not selected_label:
-        return
+    selected_label = st.selectbox(f"Select Customer ({mode}):", [""] + list(df_view['Label'].unique()), key=f"sel_{mode}")
+    
+    if not selected_label: return
 
     row = df_view[df_view['Label'] == selected_label].iloc[0]
-
+    
+    # --- DATA NORMALIZATION ---
     c_ref = normalize_id(row.get('Ref. No.', ''))
     c_serial = normalize_id(row.get('Serial No.', ''))
+    c_mob = normalize_id(row.get('Mobile', '')) 
+    c_name = row.get('Name', '')
     c_plan = row.get('Service Required', '')
+    c_age = str(row.get('Age', ''))
+    c_gender = str(row.get('Gender', ''))
+    c_loc = str(row.get('Location', ''))
+    c_addr = str(row.get('Address', ''))
+    c_shift = str(row.get('Shift', ''))
+    c_rec = str(row.get('Recurring Service', ''))
+    c_period = str(row.get('Period', ''))
+    c_visits = str(row.get('Visits', ''))
+    
+    # --- CRITICAL FIX 3: REFERRAL DATA (CLEAN 'nan') ---
+    c_ref_code = clean_referral_field(row.get('Referral Code', ''))
+    c_ref_name = clean_referral_field(row.get('Referral Name', ''))
+    c_ref_credit = clean_referral_field(row.get('Referral Credit', ''))
 
+    # --- INVOICE DATE SECTION (NEW) ---
     st.divider()
     st.subheader("2. Invoice Details")
 
-    chk_overwrite = st.checkbox(
-        "Overwrite Existing Invoice",
-        key=f"ow_{mode}"
-    )
+    # Overwrite Checkbox (Moved up to control Disabled state)
+    chk_overwrite = st.checkbox("Overwrite Existing Invoice", key=f"ow_{mode}")
 
+    # --- INVOICE CALCULATION LOGIC ---
+    # Default Values based on input file
     inv_final = ""
     default_date = datetime.date.today()
     default_qty = 1
-
+    
     val_notes = row.get('Notes', '')
-    default_notes = (
-        "" if pd.isna(val_notes)
-        or str(val_notes).strip().lower() == 'nan'
-        else str(val_notes)
-    )
-
+    default_notes = "" if pd.isna(val_notes) or str(val_notes).strip().lower() == 'nan' else str(val_notes)
+    
     conflict_exists = False
     existing_row_idx = None
 
@@ -897,31 +884,108 @@ def render_invoice_ui(df_main, mode="standard"):
         try:
             sheet_obj = wb_save.worksheet(mmm_yy)
         except:
-            sheet_obj = wb_save.add_worksheet(
-                title=mmm_yy,
-                rows=1000,
-                cols=34
-            )
+            # Only create new sheet if we are NOT just reading existing
+            sheet_obj = wb_save.add_worksheet(title=mmm_yy, rows=1000, cols=34)
             sheet_obj.append_row(SHEET_HEADERS)
     except Exception as e:
         st.error(f"Connection Error: {e}")
         return
 
+    # df_history = pd.DataFrame()
     if sheet_obj:
         master_records = sheet_obj.get_all_records()
         df_history = pd.DataFrame(master_records)
+
+        if not df_history.empty:
+            df_history['Ref_Norm'] = df_history['Ref. No.'].apply(normalize_id)
+            df_history['Ser_Norm'] = df_history['Serial No.'].apply(normalize_id)
+
+            match_mask = (
+                (df_history['Ref_Norm'] == c_ref) &
+                (df_history['Ser_Norm'] == c_serial)
+            )
+            existing_matches = df_history[match_mask]
+
+            if not existing_matches.empty:
+                conflict_exists = True
+                last_match = existing_matches.iloc[-1]
+
+                inv_final = str(last_match.get('Invoice Number', ''))
+
+                hist_note = str(last_match.get('Notes / Remarks', '')).strip()
+                if hist_note:
+                    default_notes = hist_note
+
+                # Paid Units
+                try:
+                    raw_paid_val = last_match.get('Paid for', '')
+                    if raw_paid_val and str(raw_paid_val).strip().isdigit():
+                        default_qty = int(str(raw_paid_val).strip())
+                    else:
+                        hist_details = str(last_match.get('Details', ''))
+                        match_qty = re.search(
+                            r'Paid for\s*(\d+)',
+                            hist_details,
+                            re.IGNORECASE
+                        )
+                        if match_qty:
+                            default_qty = int(match_qty.group(1))
+                except:
+                    pass
+
+                # Date
+                try:
+                    hist_date_str = str(last_match.get('Date', ''))
+                    clean_date_str = re.sub(
+                        r'(\d+)(st|nd|rd|th)',
+                        r'\1',
+                        hist_date_str
+                    )
+                    default_date = datetime.datetime.strptime(
+                        clean_date_str,
+                        "%b. %d %Y"
+                    ).date()
+                except:
+                    pass
+
+                try:
+                    cell_match = sheet_obj.find(inv_final, in_column=4)
+                    if cell_match:
+                        existing_row_idx = cell_match.row
+                except:
+                    pass
+            else:
+                default_qty = 1
+                conflict_exists = False
+        else:
+            default_qty = 1
+            conflict_exists = False
     else:
-        df_history = pd.DataFrame()
+        default_qty = 1
+        conflict_exists = False
 
     if not conflict_exists:
-        loc_code = (
-            "MUM"
-            if "mumbai" in str(row.get('Location', '')).lower()
-            else "PUN"
-        )
+        loc_code = "MUM" if "mumbai" in str(row.get('Location', '')).lower() else "PUN"
         date_part = default_date.strftime('%d%m%Y')
         prefix = f"{loc_code}-{date_part}-"
-        inv_final = f"{prefix}001"
+        next_seq = 1
+
+        if not df_history.empty and 'Invoice Number' in df_history.columns:
+            todays_invs = df_history[
+                df_history['Invoice Number']
+                .astype(str)
+                .str.startswith(prefix)
+            ]
+            if not todays_invs.empty:
+                seqs = [
+                    int(x.split('-')[-1])
+                    for x in todays_invs['Invoice Number']
+                    if '-' in x
+                ]
+                if seqs:
+                    next_seq = max(seqs) + 1
+
+        inv_final = f"{prefix}{next_seq:03d}"
 
     # ================= UI SECTION =================
 
@@ -935,9 +999,7 @@ def render_invoice_ui(df_main, mode="standard"):
         )
 
     with col_inv2:
-        is_inv_disabled = (
-            True if (conflict_exists and not chk_overwrite) else False
-        )
+        is_inv_disabled = True if (conflict_exists and not chk_overwrite) else False
         inv_input = st.text_input(
             "Invoice Number",
             value=inv_final,
@@ -945,9 +1007,7 @@ def render_invoice_ui(df_main, mode="standard"):
             key=f"inv_n_{mode}"
         )
 
-    st.write(
-        f"**Plan:** {c_plan} | **Ref:** {c_ref} | **Serial:** {c_serial}"
-    )
+    st.write(f"**Plan:** {c_plan} | **Ref:** {c_ref} | **Serial:** {c_serial}")
 
     if conflict_exists and not chk_overwrite:
         st.warning(
@@ -978,26 +1038,16 @@ def render_invoice_ui(df_main, mode="standard"):
             key=f"gen_{mode}"
         )
         gen_by_to_save = (
-            gen_by_input
-            if gen_by_input.strip()
-            else "Vesak Patient Care"
+            gen_by_input if gen_by_input.strip() else "Vesak Patient Care"
         )
 
     st.subheader("Services")
-
-    inc_list, exc_list = get_base_lists(
-        c_plan,
-        row.get('Sub Service', 'All')
-    )
+    inc_list, exc_list = get_base_lists(c_plan, row.get('Sub Service', 'All'))
 
     sc1, sc2 = st.columns(2)
 
     with sc1:
-        st.text_area(
-            "Included",
-            ", ".join(inc_list),
-            disabled=True
-        )
+        st.text_area("Included", ", ".join(inc_list), disabled=True)
 
     with sc2:
         exc_final = st.multiselect(
@@ -1537,3 +1587,4 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
