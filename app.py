@@ -1785,7 +1785,7 @@ def render_invoice_ui(df_main, mode="standard"):
         }}
     
         main {{
-            flex: 1 1 auto;
+            flex: none;
         }}
     
         /* ✅ Thank-you text: centered & anchored near footer */
@@ -1799,11 +1799,9 @@ def render_invoice_ui(df_main, mode="standard"):
         footer {{
             position: absolute;
             bottom: 7mm; /* ⬇️ slightly lower */
-			left: 0;
-			right: 0;
-            margin-left: auto;
-			margin-right: auto;);
-            width: calc(100% - 60px);
+			left: 30px;
+			right: 30px;            
+            width: auto;
         }}
     
         .watermark-container {{
@@ -1950,7 +1948,7 @@ def render_invoice_ui(df_main, mode="standard"):
 			
         </main>
 
-        <footer class="relative z-10 mt-auto w-full">
+        <footer class="z-10 w-full">
 			<div class="max-w-[210mm] mx-auto">
 
 				<div class="text-center text-xs text-gray-400 italic mb-4">
@@ -2156,6 +2154,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
