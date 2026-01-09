@@ -1791,14 +1791,14 @@ def render_invoice_ui(df_main, mode="standard"):
         /* ✅ Thank-you text: centered & anchored near footer */
         main > .text-center {{
             margin-top: 40px;
-            margin-bottom: 40px;
+            margin-bottom: 10px;
             text-align: center;
         }}
     
         /* ✅ Footer: TRUE horizontal centering */
         footer {{
             position: absolute;
-            bottom: 20px; /* ⬇️ slightly lower */
+            bottom: 15px; /* ⬇️ slightly lower */
 			left: 0;
 			right: 0;
             margin-left: auto;
@@ -2156,4 +2156,5 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
