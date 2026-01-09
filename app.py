@@ -1947,10 +1947,7 @@ def render_invoice_ui(df_main, mode="standard"):
             </div>
 
             {notes_section}
-
-            /* <div class="text-center text-xs text-gray-400 mt-12 mb-6 italic">  */
-               /* Thank you for choosing Vesak Care Foundation!  */
-            /* </div>  */
+			
         </main>
 
         <footer class="relative z-10 mt-auto w-full">
@@ -2159,3 +2156,4 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
