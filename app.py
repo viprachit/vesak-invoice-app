@@ -221,9 +221,11 @@ def get_cached_exclusion_list(master_id, month_str):
     return excluded_refs
 
 # ==========================================
-# FUNCTION 1: Enhanced generate_filename()
+# SECTION 1: FUNCTION 2 - ENHANCED generate_filename()
 # ==========================================
-# [COPY THIS] - Replace your existing generate_filename() with this
+# Location: Replace existing generate_filename() [Line ~223-226]
+# Status: MINOR UPDATE
+# Impact: Ensures consistent filename format for both Download and Print
 
 def generate_filename(doc_type, invoice_no, customer_name):
     """
@@ -386,10 +388,11 @@ def convert_html_to_pdf(source_html):
     return result.getvalue()
 
 # ==========================================
-# FUNCTION 3: NEW - Create HTML2PDF Download Script
+# SECTION 2: NEW FUNCTION - create_html2pdf_download_script()
 # ==========================================
-# [COPY THIS] - This is a NEW function. Add it to your code.
-# This function generates JavaScript for high-quality PDF download
+# Location: INSERT after convert_html_to_pdf() function [Around Line ~800]
+# Status: NEW FUNCTION - CRITICAL
+# Impact: Enables high-quality PDF downloads
 
 def create_html2pdf_download_script(html_content, filename):
     """
@@ -442,10 +445,11 @@ def create_html2pdf_download_script(html_content, filename):
     return js_script
 
 # ==========================================
-# FUNCTION 4: NEW - Create Print Listener Script
+# SECTION 3: NEW FUNCTION - create_print_listener_script()
 # ==========================================
-# [COPY THIS] - This is a NEW function. Add it to your code.
-# This function generates JavaScript for automatic print naming
+# Location: INSERT after create_html2pdf_download_script() [Around Line ~850]
+# Status: NEW FUNCTION - CRITICAL
+# Impact: Auto-sets filename when printing
 
 def create_print_listener_script(filename):
     """
@@ -478,12 +482,12 @@ def create_print_listener_script(filename):
     
     return js_print
 
-
 # ==========================================
-# FUNCTION 2: Enhanced construct_offline_invoice_html()
+# SECTION 4: FUNCTION 1 - ENHANCED construct_offline_invoice_html()
 # ==========================================
-# [COPY THIS] - Replace your existing construct_offline_invoice_html() with this
-# This now includes PREMIUM CSS for professional quality PDF output
+# Location: REPLACE the entire construct_offline_invoice_html() function [Line ~1050+]
+# Status: CRITICAL - MAJOR UPDATE
+# Impact: Premium quality PDF output with watermark and single-page fit
 
 def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     """
@@ -496,6 +500,8 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     4. Auto-Adjusted Margins (8mm all sides)
     5. Exact Color Preservation (-webkit-print-color-adjust: exact)
     6. Page Break Controls (page-break-inside: avoid)
+    7. Fixed Footer positioning
+    8. Watermark visible in BOTH Download and Print
     """
     
     # Extract Data from invoice
@@ -527,7 +533,7 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     notes = data_dict.get("Notes / Remarks", "")
     
     # ==========================================
-    # PREMIUM CSS WITH PRINT OPTIMIZATION
+    # PREMIUM CSS WITH PRINT OPTIMIZATION (CRITICAL)
     # ==========================================
     # This is the KEY UPGRADE - Professional print-optimized CSS
     
@@ -728,18 +734,19 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             color: #2c3e50;
         }
         
-        /* FOOTER SECTION */
+        /* FOOTER SECTION - CRITICAL FIX */
         .footer {
-            margin-top: auto;
+            margin-top: auto;  /* CRITICAL: Pushes to bottom */
             text-align: center;
             font-size: 8px;
             color: #999;
             border-top: 1px solid #ddd;
             padding-top: 4px;
             page-break-inside: avoid;
+            position: relative;
         }
         
-        /* WATERMARK - PROTECTED (NO CHANGES) */
+        /* WATERMARK - EMBEDDED FOR PRINT */
         .watermark-container {
             position: fixed;
             top: 50%;
@@ -785,11 +792,24 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
                 color: white !important;
             }
             
+            .invoice-header {
+                page-break-inside: avoid;
+            }
+            
             .logo-section img {
                 -webkit-print-color-adjust: exact;  /* CRITICAL: Logo in print */
                 print-color-adjust: exact;           /* CRITICAL: Logo in print */
                 image-rendering: crisp-edges;
                 color-adjust: exact;
+            }
+            
+            .footer {
+                margin-top: auto;
+                page-break-inside: avoid;
+            }
+            
+            .watermark-container {
+                opacity: 0.08 !important;
             }
         }
     </style>
@@ -809,7 +829,7 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
         {premium_css}
     </head>
     <body>
-        <!-- WATERMARK - PROTECTED -->
+        <!-- WATERMARK - VISIBLE IN PRINT -->
         <div class="watermark-container">
             <div class="watermark-text">VESAK CARE</div>
         </div>
@@ -892,7 +912,7 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             <!-- NOTES (if any) -->
             {'<div class="notes-section"><strong>Notes:</strong> ' + notes + '</div>' if notes else ''}
             
-            <!-- FOOTER -->
+            <!-- FOOTER - FIXED AT BOTTOM -->
             <div class="footer">
                 <p>Thank you for choosing VESAK CARE SERVICES | Authorized Invoice Generated</p>
             </div>
@@ -1193,7 +1213,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 
 # ==========================================
-# CORE INVOICE FUNCTION
+# CORE INVOICE FUNCTION - SECTION 5: ADD WARNING DIALOG IN render_invoice_ui()
 # ==========================================
 def render_invoice_ui(df_main, mode="standard"):
     # 1. Connect to Master Sheet (MOVED UP FOR EXCLUSION LOGIC)
@@ -1488,6 +1508,65 @@ def render_invoice_ui(df_main, mode="standard"):
     # --- UPDATED: Removed Nurse/Patient Buttons from here ---
     btn_save = False
     
+	# ==========================================
+	# SECTION 5: ADD WARNING DIALOG IN render_invoice_ui()
+	# ==========================================
+	# Location: In render_invoice_ui() function, BEFORE PDF generation buttons [Around Line ~1500-1600]
+	# Status: UX ENHANCEMENT
+	# What to add: Insert this warning BEFORE the Download/Print buttons
+
+	# Add this code block in the render_invoice_ui() function where PDF buttons are shown:
+	"""
+	# === NEW CODE: Add warning before PDF buttons ===
+	st.warning(
+		"⚠️ **Important Notice:** "
+		"When generating Download or Print PDFs, if the invoice footer appears on a 2nd page, "
+		"the page break may not be perfectly aligned. "
+		"**Recommended:** Use 'Print → Save as PDF' for the best single-page output with watermark embedded.",
+		icon="📄"
+	)
+	# === END NEW CODE ===
+	"""
+	
+	# ==========================================
+	# SECTION 6: UPDATE PDF GENERATION IN render_invoice_ui()
+	# ==========================================
+	# Location: In render_invoice_ui() where buttons generate PDFs [Around Line ~1600-1700]
+	# Status: ENHANCEMENT
+	# What to change: Update the download button logic
+	
+	# NEW CODE (replacement):
+	"""
+	col_download, col_print = st.columns(2)
+
+	with col_download:
+		if st.button("📥 Download PDF", key=f"btn_dl_{mode}"):
+			html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+			pdf_bytes = convert_html_to_pdf(html)
+			if pdf_bytes:
+				filename = generate_filename("Invoice", record.get("Invoice Number", ""), record.get("Customer Name", ""))
+				st.download_button(
+					label="📥 Download PDF",
+					data=pdf_bytes,
+					file_name=filename,
+					mime="application/pdf"
+				)
+			else:
+				st.error("❌ Error generating PDF. Please try again.")
+
+	with col_print:
+		if st.button("🖨️ Print & Save", key=f"btn_pr_{mode}"):
+			html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+			# Embed print script for automatic naming
+			print_script = create_print_listener_script(
+				generate_filename("Invoice", record.get("Invoice Number", ""), record.get("Customer Name", ""))
+			)
+			html_with_print = html.replace("</body>", f"{print_script}</body>")
+			# Show preview
+			st.info("ℹ️ PDF preview will open in a new window. Use Ctrl+P or Cmd+P to Print/Save as PDF.")
+			components.html(html_with_print, height=1200, scrolling=True)
+	"""
+
     # ⭐ CHANGE #5 CONTINUED: BUTTON STATE LOGIC
     if conflict_exists:
         if chk_overwrite:
