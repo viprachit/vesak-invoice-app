@@ -1805,8 +1805,8 @@ def render_invoice_ui(df_main, mode="standard"):
         }}
     
         .watermark-container {{
-            position: fixed;
-            top: 148.5mm;
+            position: absolute;
+            top: 50%;
             left: 50%;
             transform: translateX(-50%) translateY(-50%);
             pointer-events: none;
@@ -1826,6 +1826,15 @@ def render_invoice_ui(df_main, mode="standard"):
                 background: white;
                 -webkit-print-color-adjust: exact;
             }}
+
+			.watermark-container {{
+                opacity: 0.04 !important;
+            }}
+
+			.watermark-text,
+			.watermark-container img {{
+			opacity: 0.04 !important;  /* keep subtle but force render */
+			}}
     
             .invoice-page {{
                 width: 210mm;
@@ -1842,11 +1851,8 @@ def render_invoice_ui(df_main, mode="standard"):
     
             .no-print {{
                 display: none !important;
-            }}
-    
-            .watermark-container {{
-                opacity: 0.04 !important;
-            }}
+            }}    
+            
         }}
     </style>
 </head>
@@ -2152,6 +2158,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
