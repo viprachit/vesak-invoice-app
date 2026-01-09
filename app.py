@@ -1761,58 +1761,69 @@ def render_invoice_ui(df_main, mode="standard"):
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap');
-    
+        
         body {{
             font-family: 'Lato', sans-serif;
             background: #f0f0f0;
             margin: 0;
         }}
-    
+        
+        /* ================= PAGE ================= */
+        
         .invoice-page {{
             position: relative;
-            background: white;
             width: 210mm;
             height: 297mm;
+            background: white;
             padding: 30px;
-            padding-bottom: 120px; /* 🔒 Space for thank-you + footer */
+            padding-bottom: 110px; /* EXACT space for thank-you + footer */
+            margin: 0 auto;
             overflow: hidden;
-            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
             display: flex;
             flex-direction: column;
-    
-            margin-left: auto;
-            margin-right: auto;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
         }}
-    
+        
         main {{
             flex: 1 1 auto;
         }}
-    
-        /* ✅ Thank-you text: centered & anchored near footer */
-        main > .text-center {{
-            margin-top: 40px;
-            margin-bottom: 40px;
+        
+        /* ================= THANK YOU ================= */
+        
+        main .text-center {{
+            position: absolute;
+            bottom: 70px; /* 10px above gradient line */
+            left: 0;
+            width: 100%;
             text-align: center;
         }}
-    
-        /* ✅ Footer: TRUE horizontal centering */
+        
+        /* ================= FOOTER ================= */
+        
         footer {{
             position: absolute;
-            bottom: 20px; /* ⬇️ slightly lower */
-            left: 50%;
-            transform: translateX(-50%);
-            width: calc(100% - 60px);
+            bottom: 10px; /* 🔒 NAVY LINE = 10px from page bottom */
+            left: 30px;
+            right: 30px;
+            z-index: 10;
         }}
-    
+        
+        /* Remove margin collapsing */
+        footer > div {{
+            margin: 0;
+        }}
+        
+        /* ================= WATERMARK ================= */
+        
         .watermark-container {{
             position: fixed;
             top: 148.5mm;
             left: 50%;
-            transform: translateX(-50%) translateY(-50%);
+            transform: translate(-50%, -50%);
             pointer-events: none;
             z-index: 0;
         }}
-    
+        
         .watermark-text {{
             font-family: 'Playfair Display', serif;
             font-size: 80px;
@@ -1820,30 +1831,28 @@ def render_invoice_ui(df_main, mode="standard"):
             color: rgba(0, 33, 71, 0.04);
             letter-spacing: 0.25em;
         }}
-    
+        
+        /* ================= PRINT ================= */
+        
         @media print {{
             body {{
                 background: white;
                 -webkit-print-color-adjust: exact;
             }}
-    
+        
             .invoice-page {{
                 width: 210mm;
                 height: 297mm;
-                padding: 20px;
-                padding-bottom: 90px;
+                padding: 30px;
+                padding-bottom: 110px;
+                margin: 0 auto;
                 box-shadow: none;
             }}
-    
-            footer {{
-                bottom: 10px;
-                width: calc(100% - 40px);
-            }}
-    
+        
             .no-print {{
                 display: none !important;
             }}
-    
+        
             .watermark-container {{
                 opacity: 0.04 !important;
             }}
@@ -2149,6 +2158,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
