@@ -1798,7 +1798,7 @@ def render_invoice_ui(df_main, mode="standard"):
         /* ✅ Footer: TRUE horizontal centering */
         footer {{
             position: absolute;
-            bottom: 15px; /* ⬇️ slightly lower */
+            bottom: 7mm; /* ⬇️ slightly lower */
 			left: 0;
 			right: 0;
             margin-left: auto;
@@ -1838,7 +1838,7 @@ def render_invoice_ui(df_main, mode="standard"):
             }}
     
             footer {{
-                bottom: 10px;
+                bottom: 7mm;
                 width: calc(100% - 40px);
             }}
     
@@ -2156,5 +2156,6 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
