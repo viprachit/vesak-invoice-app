@@ -1547,12 +1547,12 @@ def render_invoice_ui(df_main, mode="standard"):
         pdf_date_str = format_date_with_suffix(inv_date_val)
         
         file_name = generate_filename(doc_type, inv_input, c_name)
-		
+
 		# ==============================
 		# ⭐ PREVIEW ADDED BACK HERE ⭐
-			preview_html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-			if preview_html:
-				components.html(preview_html, height=1100, scrolling=True)
+		preview_html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+		if preview_html:
+			components.html(preview_html, height=1100, scrolling=True)
 		# ==============================
 
         desc_col_html = construct_description_html(row)
@@ -2003,6 +2003,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
