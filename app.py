@@ -127,9 +127,9 @@ def robust_file_downloader(url):
     except Exception as e: return None
 
 def format_date_with_suffix(d):
-    
+    """
     Returns date in format: "Jan 23rd 2026"
-    
+    """
     if pd.isna(d): return "N/A"
     try:
         if isinstance(d, datetime.datetime): d = d.date()
@@ -2205,4 +2205,5 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
