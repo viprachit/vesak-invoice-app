@@ -2,11 +2,12 @@ import streamlit as st
 import pandas as pd
 import base64
 import os
-import datetime
+import datetime		   
 import requests
 import math 
 import re 
 import json
+import time			
 from io import BytesIO
 from PIL import Image, ImageFile
 import streamlit.components.v1 as components
@@ -64,7 +65,7 @@ def load_config_path(file_name):
     return ""
 
 def save_config_path(path, file_name):
-    with open(file_name, "w") as f: f.write(path.replace('\"', '').strip())
+    with open(file_name, "w") as f: f.write(path.replace('"', '').strip())
     return path
 
 def extract_id_from_url(url):
@@ -82,7 +83,7 @@ def get_credentials():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
         s_info = st.secrets["connections"]["gsheets"]
-        private_key = s_info.get("private_key").replace("\\\\n", "\\n")
+        private_key = s_info.get("private_key").replace("\\n", "\n")
         creds_dict = {
             "type": s_info.get("type"),
             "project_id": s_info.get("project_id"),
@@ -1015,7 +1016,7 @@ def get_clean_image_base64(file_path):
     except: return None
 
 def get_absolute_path(filename):
-    if os.path.exists(filename): return os.path.abspath(filename).replace('\\\\', '/')
+    if os.path.exists(filename): return os.path.abspath(filename).replace('\\', '/')
     return None
 
 # ==========================================
@@ -1089,9 +1090,9 @@ with st.sidebar:
                     else: st.warning(msg)
             except Exception as e: st.error(f"Could not read Master Workbook: {e}")
 
-    
-    data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
-    if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
+										
+data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
+if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
 
 # --- LOAD INPUT FILE ---
 raw_file_obj = None
@@ -1118,6 +1119,21 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 # CORE INVOICE FUNCTION - render_invoice_ui()
 # ==========================================
 def render_invoice_ui(df_main, mode="standard"):
+    # ========================================================
+    # ⭐ RESET TRIGGER CHECK (SOLVES THE STREAMLIT ERROR)
+    # ========================================================
+    # This block executes BEFORE the widgets are drawn.
+    # It checks if the previous run requested a reset.
+    if st.session_state.get(f"trigger_reset_{mode}", False):
+        st.session_state[f"inv_d_{mode}"] = datetime.date.today()
+        # Reset overwrite checkbox key if it exists
+        if f"ow_{mode}" in st.session_state:
+            st.session_state[f"ow_{mode}"] = False
+        # Consume the trigger
+        st.session_state[f"trigger_reset_{mode}"] = False
+    
+    # --------------------------------------------------------															  
+
     client = get_gspread_client()
     master_id = extract_id_from_url(sys_config.get("master_sheet_url"))
 
@@ -1196,7 +1212,7 @@ def render_invoice_ui(df_main, mode="standard"):
     st.subheader("2. Invoice Details")
 
     # Overwrite Checkbox (Moved up to control Disabled state)
-    chk_overwrite = st.checkbox("Overwrite Existing Invoice", key=f"ow_{mode}", value=st.session_state.chk_overwrite)
+    chk_overwrite = st.checkbox("Overwrite Existing Invoice", key=f"ow_{mode}")
 
     # --- INVOICE CALCULATION LOGIC ---
     inv_final = ""
@@ -1237,7 +1253,7 @@ def render_invoice_ui(df_main, mode="standard"):
             # ⭐ CHANGE #8: FIXED CONFLICT DETECTION LOGIC - MATCH ONLY ON REF. NO. AND SERIAL NO.
             # DO NOT MATCH ON INVOICE NO. because it changes for each invoice
             # This ensures we detect existing customers regardless of how many invoices they have
-            # Location: Lines 993-998									 
+            									 
             match_mask = (
                 (df_history['Ref_Norm'].astype(str) == str(c_ref)) &
                 (df_history['Ser_Norm'].astype(str) == str(c_serial))
@@ -1511,16 +1527,17 @@ def render_invoice_ui(df_main, mode="standard"):
             st.success("Created New Row!")
         st.balloons()
         
-        # ⭐ CHANGE #1: AUTO-RESET INVOICE DATE
-        # Reset the date field to today's date after successful creation
-        st.session_state[f"inv_d_{mode}"] = datetime.date.today()
-        
-        # ⭐ CHANGE #2: AUTO-RESET OVERWRITE CHECKBOX
-        # Reset checkbox to unchecked after successful creation
-        st.session_state.chk_overwrite = False
-        
-        # ⭐ CHANGE #6 CONTINUED: REMOVE PAGE RELOADS
-        # Removed st.rerun() call - using direct state updates instead for instant feedback
+       # ========================================================
+        # ⭐ RESET LOGIC - TRIGGER RERUN (SOLVES THE ERROR)
+        # ========================================================
+        # Instead of modifying the widget key directly (which crashes),
+        # we set a trigger flag for the NEXT run and rerun immediately.
+        st.session_state[f"trigger_reset_{mode}"] = True
+        time.sleep(0.5) # Short delay for balloons/visual feedback
+							   
+		  
+        st.rerun()
+        # ========================================================
 
     if btn_save:
         doc_type = "Invoice"
@@ -1774,6 +1791,7 @@ def render_invoice_ui(df_main, mode="standard"):
             </div>
 
             {notes_section}
+			
         </main>
 
         <footer class="z-10">
@@ -1978,6 +1996,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
