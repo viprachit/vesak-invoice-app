@@ -1538,45 +1538,43 @@ def render_invoice_ui(df_main, mode="standard"):
     # What to change: Update the download button logic
 
     # NEW CODE (replacement):
-    """
     col_download, col_print = st.columns(2)
 
-    with col_download:
-        if st.button("📥 Download PDF", key=f"btn_dl_{mode}"):
-            html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-            pdf_bytes = convert_html_to_pdf(html)
-            if pdf_bytes:
-                filename = generate_filename(
-                    "Invoice",
-                    record.get("Invoice Number", ""),
-                    record.get("Customer Name", "")
-                )
-                st.download_button(
-                    label="📥 Download PDF",
-                    data=pdf_bytes,
-                    file_name=filename,
-                    mime="application/pdf"
-                )
-            else:
-                st.error("❌ Error generating PDF. Please try again.")
+        with col_download:
+            if st.button("📥 Download PDF", key=f"btn_dl_{mode}"):
+                html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+                pdf_bytes = convert_html_to_pdf(html)
+                if pdf_bytes:
+                    filename = generate_filename(
+                        "Invoice",
+                        record.get("Invoice Number", ""),
+                        record.get("Customer Name", "")
+                    )
+                    st.download_button(
+                        label="📥 Download PDF",
+                        data=pdf_bytes,
+                        file_name=filename,
+                        mime="application/pdf"
+                    )
+                else:
+                    st.error("❌ Error generating PDF. Please try again.")
 
-    with col_print:
-        if st.button("🖨️ Print & Save", key=f"btn_pr_{mode}"):
-            html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-            print_script = create_print_listener_script(
-                generate_filename(
-                    "Invoice",
-                    record.get("Invoice Number", ""),
-                    record.get("Customer Name", "")
+        with col_print:
+            if st.button("🖨️ Print & Save", key=f"btn_pr_{mode}"):
+                html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+                print_script = create_print_listener_script(
+                    generate_filename(
+                        "Invoice",
+                        record.get("Invoice Number", ""),
+                        record.get("Customer Name", "")
+                    )
                 )
-            )
-            html_with_print = html.replace("</body>", f"{print_script}</body>")
-            st.info(
-                "ℹ️ PDF preview will open in a new window. "
-                "Use Ctrl+P or Cmd+P to Print/Save as PDF."
-            )
-            components.html(html_with_print, height=1200, scrolling=True)
-    """
+                html_with_print = html.replace("</body>", f"{print_script}</body>")
+                st.info(
+                    "ℹ️ PDF preview will open in a new window. "
+                    "Use Ctrl+P or Cmd+P to Print/Save as PDF."
+                )
+                components.html(html_with_print, height=1200, scrolling=True)
 
     # ⭐ CHANGE #5 CONTINUED: BUTTON STATE LOGIC
     if conflict_exists:
@@ -2183,6 +2181,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
