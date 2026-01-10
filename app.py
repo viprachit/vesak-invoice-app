@@ -189,16 +189,15 @@ def clean_referral_field(val):
 @st.cache_data(ttl=120, show_spinner=False)
 def get_cached_exclusion_list(master_id, month_str):
     """
-    Fetches the exclusion list with caching (5 mins) to prevent 429 Quota Errors.
+    Fetches the exclusion list with caching (2 mins) to prevent 429 Quota Errors.
     """
     client = get_gspread_client()
-    if not client or not master_id: return []
+    if not client or not master_id:
+        return []
     
     excluded_refs = []
     try:
         wb = client.open_by_key(master_id)
-		ws = wb.worksheet(month_str)
-		return ws.get_all_records()
         try:
             sheet_check = wb.worksheet(month_str)
             data_check = sheet_check.get_all_records()
@@ -216,8 +215,9 @@ def get_cached_exclusion_list(master_id, month_str):
                     for _, r_end in ended_rows.iterrows():
                         key = f"{normalize_id(r_end['Ref. No.'])}-{normalize_id(r_end['Serial No.'])}"
                         excluded_refs.append(key)
-        except gspread.exceptions.WorksheetNotFound: pass
-    except Exception as e:
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+    except Exception:
         return []
         
     return excluded_refs
@@ -2211,6 +2211,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
