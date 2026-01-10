@@ -127,9 +127,9 @@ def robust_file_downloader(url):
     except Exception as e: return None
 
 def format_date_with_suffix(d):
-    """
+    
     Returns date in format: "Jan 23rd 2026"
-    """
+    
     if pd.isna(d): return "N/A"
     try:
         if isinstance(d, datetime.datetime): d = d.date()
@@ -141,9 +141,9 @@ def format_date_with_suffix(d):
     except: return str(d)
 
 def format_date_simple(d):
-    """
+    
     Returns date in format: "DD-MM-YYYY" (No Time)
-    """
+    
     if pd.isna(d): return ""
     try:
         if isinstance(d, datetime.datetime): d = d.date()
@@ -155,13 +155,13 @@ def clean_text(text): return str(text).strip() if isinstance(text, str) else str
 # ===== CRITICAL FIX 1: ID NORMALIZATION (NO DECIMALS) =====
 # ⭐ CHANGE #1: ENHANCED normalize_id() FUNCTION
 def normalize_id(val):
-    """
+    
     Robust normalization:
     1. Handles "1.0" (float string) -> float 1.0 -> int 1 -> string "1"
     2. Handles 1.0 (float) -> int 1 -> string "1"
     3. Handles "1" (string) -> string "1"
     4. Handles NaN/None -> ""
-    """
+    
     if pd.isna(val): return ""
     s_val = str(val).strip()
     if s_val == "" or s_val.lower() == "nan": return ""
@@ -174,10 +174,10 @@ def normalize_id(val):
 
 # --- CRITICAL FIX 2: CLEAN REFERRAL DATA (NO 'nan') ---
 def clean_referral_field(val):
-    """
+    
     Ensures that empty cells in Excel stay empty in Google Sheets.
     Removes 'nan', 'NaN', 'None', etc.
-    """
+    
     if pd.isna(val): return ""
     s_val = str(val).strip()
     if s_val.lower() == "nan": return ""
@@ -188,9 +188,9 @@ def clean_referral_field(val):
 # --- CRITICAL FIX 3: CACHED EXCLUSION LIST (FIXES 429 ERROR) ---
 @st.cache_data(ttl=120, show_spinner=False)
 def get_cached_exclusion_list(master_id, month_str):
-    """
+    
     Fetches the exclusion list with caching (2 mins) to prevent 429 Quota Errors.
-    """
+    
     client = get_gspread_client()
     if not client or not master_id:
         return []
@@ -230,13 +230,13 @@ def get_cached_exclusion_list(master_id, month_str):
 # Impact: Ensures consistent filename format for both Download and Print
 
 def generate_filename(doc_type, invoice_no, customer_name):
-    """
+    
     Generates standardized filename format.
     Format: {PREFIX}-{INVOICE_NO}-{CLEAN_NAME}.pdf
     Example: IN-2026-001-RAJESH-KUMAR.pdf
     
     UPGRADED: Now handles clean invoice_no and ensures consistent naming for both Download and Print
-    """
+    
     prefix = {
         "Invoice": "IN", 
         "Nurse": "NU", 
@@ -292,7 +292,7 @@ def construct_description_html(row):
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_str = shift_map.get(shift_raw, shift_raw)
     time_suffix = " (Time)" if "12" in shift_str else ""
-    return f"""<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{shift_str}{time_suffix}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{period_raw}</div></div>"""
+    return f<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{shift_str}{time_suffix}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{period_raw}</div></div>
 
 def construct_amount_html(row, billing_qty):
     try: unit_rate = float(row.get('Unit Rate', 0)) 
@@ -356,7 +356,7 @@ def construct_amount_html(row, billing_qty):
     
     paid_for_text = f"Paid for {billing_qty} {get_plural(unit_label, billing_qty)}"
 
-    return f"""
+    return f
     <div style="text-align: right; font-size: 13px; color: #555;">
         <div style="margin-bottom: 4px;">{shift_display} / {period_display} = <b>₹ {unit_rate_str}</b></div>
         <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
@@ -368,7 +368,7 @@ def construct_amount_html(row, billing_qty):
         </div>
         <div style="font-size: 10px; color: #666; font-style: italic; margin-top: 6px;">{billing_note}</div>
     </div>
-    """
+    
 
 # ==========================================
 # FUNCTION 5: KEEP YOUR EXISTING convert_html_to_pdf()
@@ -377,12 +377,12 @@ def construct_amount_html(row, billing_qty):
 # We're keeping xhtml2pdf as a fallback option
 
 def convert_html_to_pdf(source_html):
-    """
+    
     Converts HTML to PDF using xhtml2pdf.
     
     NOTE: This function is now a FALLBACK for compatibility.
     For new downloads, use the html2pdf.js approach instead.
-    """
+    
     result = BytesIO()
     pisa_status = pisa.CreatePDF(source_html, dest=result)
     if pisa_status.err: 
@@ -397,7 +397,7 @@ def convert_html_to_pdf(source_html):
 # Impact: Enables high-quality PDF downloads
 
 def create_html2pdf_download_script(html_content, filename):
-    """
+    
     Creates JavaScript for HIGH-QUALITY PDF download using html2pdf.js library.
     
     NEW FUNCTION - CRITICAL UPGRADE:
@@ -408,9 +408,9 @@ def create_html2pdf_download_script(html_content, filename):
     - Automatic margins
     
     Returns JavaScript code that can be embedded in HTML
-    """
     
-    js_script = f"""
+    
+    js_script = f
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
         window.addEventListener('load', function() {{
@@ -442,7 +442,7 @@ def create_html2pdf_download_script(html_content, filename):
             html2pdf().set(opt).from(element).save();
         }});
     </script>
-    """
+    
     
     return js_script
 
@@ -454,7 +454,7 @@ def create_html2pdf_download_script(html_content, filename):
 # Impact: Auto-sets filename when printing
 
 def create_print_listener_script(filename):
-    """
+    
     Adds JavaScript listener to Print event for automatic filename.
     
     NEW FUNCTION - CRITICAL UPGRADE:
@@ -464,11 +464,11 @@ def create_print_listener_script(filename):
     - Ensures consistent naming across all prints
     
     Returns JavaScript code that can be embedded in HTML
-    """
+    
     
     filename_without_ext = filename.replace('.pdf', '')
     
-    js_print = f"""
+    js_print = f
     <script>
         window.addEventListener('beforeprint', function() {{
             // Set print title to match filename (shows in save dialog)
@@ -480,7 +480,7 @@ def create_print_listener_script(filename):
             document.title = 'Vesak Care Invoice';
         }});
     </script>
-    """
+    
     
     return js_print
 
@@ -492,7 +492,7 @@ def create_print_listener_script(filename):
 # Impact: Premium quality PDF output with watermark and single-page fit
 
 def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
-    """
+    
     Generates Premium-Quality HTML for Professional PDF Output
     
     UPGRADED FEATURES:
@@ -504,7 +504,7 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     6. Page Break Controls (page-break-inside: avoid)
     7. Fixed Footer positioning
     8. Watermark visible in BOTH Download and Print
-    """
+    
     
     # Extract Data from invoice
     inv_num = data_dict.get("Invoice Number", "")
@@ -539,7 +539,7 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     # ==========================================
     # This is the KEY UPGRADE - Professional print-optimized CSS
     
-    premium_css = """
+    premium_css = 
     <style>
         /* PAGE SETUP - Auto-adjusted margins */
         @page {
@@ -815,13 +815,13 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             }
         }
     </style>
-    """
+    
     
     # Create logo image tag
     logo_img = f'<img src="data:image/png;base64,{logo_b64}" alt="Logo" />' if logo_b64 else ""
     
     # Build the complete HTML
-    html = f"""
+    html = f
     <!DOCTYPE html>
     <html>
     <head>
@@ -921,7 +921,7 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
         </div>
     </body>
     </html>
-    """
+    
     
     return html
 
@@ -1023,11 +1023,11 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
 
 # ⭐ CHANGE #7: NEW FUNCTION - update_invoice_in_gsheet()
 def update_invoice_in_gsheet(data_dict, sheet_obj, row_idx):
-    """
+    
     Updates an existing row in the Google Sheet instead of appending.
     Only updates columns A through X (customer data).
     Preserves UID and other calculated columns.
-    """
+    
     if sheet_obj is None: return False
     try:
         # Update columns A through X (Indices 0 to 23 in data, 1-24 in Sheet)
@@ -1179,14 +1179,14 @@ with st.sidebar:
                 wb_master = client.open_by_key(master_id)
                 ws_master = wb_master.worksheet(backup_month_str) 
                 data_to_copy = ws_master.get_all_values()
-                if not data_to_copy: st.warning("Master sheet is empty.")
+                if not data_to_copy: 
                 else:
                     status, msg = perform_backup_logic(data_to_copy, sys_config["backup_sheet_url"], backup_month_str)
                     if status: st.success(msg)
-                    else: st.warning(msg)
+                    else: 
             except Exception as e: st.error(f"Could not read Master Workbook: {e}")
 
-    
+    st.markdown("---")
     
     data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
     if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
@@ -1274,9 +1274,9 @@ def render_invoice_ui(df_main, mode="standard"):
     
     if df_view.empty:
         if use_filters:
-            st.warning(f"No active customers found for {filter_date} in {filter_loc}.")
+            
         else:
-            st.warning("No active customers found in the file.")
+            
         return
 
     selected_label = st.selectbox(f"Select Customer ({mode}):", [""] + list(df_view['Label'].unique()), key=f"sel_{mode}")
@@ -1307,9 +1307,17 @@ def render_invoice_ui(df_main, mode="standard"):
     c_ref_credit = clean_referral_field(row.get('Referral Credit', ''))
 
     # --- INVOICE DATE SECTION (NEW) ---
-    st.divider()
-    st.subheader("2. Invoice Details")
-    
+	st.divider()
+	st.subheader("2. Invoice Details")
+	
+	# Overwrite Checkbox (state bound to session_state)
+	chk_overwrite = st.checkbox(
+	    "Overwrite Existing Invoice",
+	    key=f"ow_{mode}",
+	    value=st.session_state.chk_overwrite
+	)
+	st.session_state.chk_overwrite = chk_overwrite
+
     # Overwrite Checkbox (Moved up to control Disabled state)
     # Overwrite Checkbox (state bound to session_state)
     chk_overwrite = st.checkbox(
@@ -1349,7 +1357,7 @@ def render_invoice_ui(df_main, mode="standard"):
 
     # df_history = pd.DataFrame()
     if sheet_obj:
-        master_records = sheet_obj.get_all_records()
+        master_records = cached_month_history(master_id, mmm_yy)
         df_history = pd.DataFrame(master_records) if master_records else pd.DataFrame()
 
         if not df_history.empty:
@@ -1406,15 +1414,15 @@ def render_invoice_ui(df_main, mode="standard"):
                     pass
 
                 # === USE HISTORY DF SEARCH BEFORE SHEET FIND ===
-                existing_matches_df = df_history[df_history["Invoice Number"] == inv_final]
-                if not existing_matches_df.empty:
-                    existing_row_idx = existing_matches_df.index[-1] + 2  # account for header
-                else:
-                    try:
-                        cell_match = sheet_obj.find(inv_final, in_column=4)
-                        existing_row_idx = cell_match.row
-                    except:
-                        existing_row_idx = None
+				existing_matches_df = df_history[df_history["Invoice Number"] == inv_final]
+				if not existing_matches_df.empty:
+				    existing_row_idx = existing_matches_df.index[-1] + 2  # account for header
+				else:
+				    try:
+				        cell_match = sheet_obj.find(inv_final, in_column=4)
+				        existing_row_idx = cell_match.row
+				    except:
+				        existing_row_idx = None
             else:
                 default_qty = 1
                 conflict_exists = False
@@ -1478,8 +1486,7 @@ def render_invoice_ui(df_main, mode="standard"):
                 "Overwrite is ON – changes will update existing invoice."
             )
         else:
-            st.warning(
-                f"⚠️ Client exists (Ref: {c_ref}, Serial: {c_serial}). "
+            . "
                 "Tick 'Overwrite' to update the existing invoice."
             )
 
@@ -1529,7 +1536,20 @@ def render_invoice_ui(df_main, mode="standard"):
     # --- UPDATED: Removed Nurse/Patient Buttons from here ---
     btn_save = False
 
+    # ==========================================
+    # SECTION 5: ADD WARNING DIALOG IN render_invoice_ui()
+    # ==========================================
+    # Location: In render_invoice_ui() function, BEFORE PDF generation buttons [Around Line ~1500-1600]
+    # Status: UX ENHANCEMENT
+    # What to add: Insert this warning BEFORE the Download/Print buttons
+
+    # Add this code block in the render_invoice_ui() function where PDF buttons are shown:
     
+    # === NEW CODE: Add warning before PDF buttons ===
+    
+    # === END NEW CODE ===
+    
+
     # ==========================================
     # SECTION 6: UPDATE PDF GENERATION IN render_invoice_ui()
     # ==========================================
@@ -1538,43 +1558,45 @@ def render_invoice_ui(df_main, mode="standard"):
     # What to change: Update the download button logic
 
     # NEW CODE (replacement):
+    
     col_download, col_print = st.columns(2)
 
-        with col_download:
-            if st.button("📥 Download PDF", key=f"btn_dl_{mode}"):
-                html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-                pdf_bytes = convert_html_to_pdf(html)
-                if pdf_bytes:
-                    filename = generate_filename(
-                        "Invoice",
-                        record.get("Invoice Number", ""),
-                        record.get("Customer Name", "")
-                    )
-                    st.download_button(
-                        label="📥 Download PDF",
-                        data=pdf_bytes,
-                        file_name=filename,
-                        mime="application/pdf"
-                    )
-                else:
-                    st.error("❌ Error generating PDF. Please try again.")
+    with col_download:
+        if st.button("📥 Download PDF", key=f"btn_dl_{mode}"):
+            html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+            pdf_bytes = convert_html_to_pdf(html)
+            if pdf_bytes:
+                filename = generate_filename(
+                    "Invoice",
+                    record.get("Invoice Number", ""),
+                    record.get("Customer Name", "")
+                )
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_bytes,
+                    file_name=filename,
+                    mime="application/pdf"
+                )
+            else:
+                st.error("❌ Error generating PDF. Please try again.")
 
-        with col_print:
-            if st.button("🖨️ Print & Save", key=f"btn_pr_{mode}"):
-                html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-                print_script = create_print_listener_script(
-                    generate_filename(
-                        "Invoice",
-                        record.get("Invoice Number", ""),
-                        record.get("Customer Name", "")
-                    )
+    with col_print:
+        if st.button("🖨️ Print & Save", key=f"btn_pr_{mode}"):
+            html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
+            print_script = create_print_listener_script(
+                generate_filename(
+                    "Invoice",
+                    record.get("Invoice Number", ""),
+                    record.get("Customer Name", "")
                 )
-                html_with_print = html.replace("</body>", f"{print_script}</body>")
-                st.info(
-                    "ℹ️ PDF preview will open in a new window. "
-                    "Use Ctrl+P or Cmd+P to Print/Save as PDF."
-                )
-                components.html(html_with_print, height=1200, scrolling=True)
+            )
+            html_with_print = html.replace("</body>", f"{print_script}</body>")
+            st.info(
+                "ℹ️ PDF preview will open in a new window. "
+                "Use Ctrl+P or Cmd+P to Print/Save as PDF."
+            )
+            components.html(html_with_print, height=1200, scrolling=True)
+    
 
     # ⭐ CHANGE #5 CONTINUED: BUTTON STATE LOGIC
     if conflict_exists:
@@ -1687,7 +1709,7 @@ def render_invoice_ui(df_main, mode="standard"):
             st.success("Created New Row!")
         st.balloons()
 
-        # === NEW: RESET / SET STATE AFTER SAVE ===
+		# === NEW: RESET / SET STATE AFTER SAVE ===
         if conflict_exists and chk_overwrite and existing_row_idx:
             # After overwrite, keep overwrite ON for same client
             st.session_state.chk_overwrite = True
@@ -1699,16 +1721,16 @@ def render_invoice_ui(df_main, mode="standard"):
         st.session_state[f"inv_d_{mode}"] = datetime.date.today()
         # ==========================================
 
-        # === AUTO SET OVERWRITE ===
-        # Mark this invoice as new so we force overwrite on next view
-        st.session_state[f"ow_{mode}"] = True
-        st.warning("⚠️ Client Exists. 'Overwrite' to update this client.")
+		# === AUTO SET OVERWRITE ===
+		# Mark this invoice as new so we force overwrite on next view
+		st.session_state[f"ow_{mode}"] = True
+		
 
-        # === RESET STATE AFTER SAVE ===
-        # Reset invoice date to today and overwrite checkbox
-        st.session_state[f"inv_d_{mode}"] = datetime.date.today()
-        st.session_state[f"ow_{mode}"] = False
-        st.success("🔥 State reset ready for next invoice.")
+		# === RESET STATE AFTER SAVE ===
+		# Reset invoice date to today and overwrite checkbox
+		st.session_state[f"inv_d_{mode}"] = datetime.date.today()
+		st.session_state[f"ow_{mode}"] = False
+		st.success("🔥 State reset ready for next invoice.")
 
     if btn_save:
         doc_type = "Invoice"
@@ -1760,10 +1782,10 @@ def render_invoice_ui(df_main, mode="standard"):
 
         notes_section = ""
         if final_notes:
-            notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES:</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
+            notes_section = f<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES:</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>
 
         # --- WEB PREVIEW TEMPLATE (Tailwind CSS) ---
-        html_content = f"""
+        html_content = f
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1822,9 +1844,9 @@ def render_invoice_ui(df_main, mode="standard"):
         footer {{
             position: absolute;
             bottom: 7mm; /* ⬇️ slightly lower */
-            left: 30px;
-            right: 30px;
-            text-align: center;
+			left: 30px;
+			right: 30px;
+			text-align: center;
         }}
     
         .watermark-container {{
@@ -1850,14 +1872,14 @@ def render_invoice_ui(df_main, mode="standard"):
                 -webkit-print-color-adjust: exact;
             }}
 
-            .watermark-container {{
+			.watermark-container {{
                 opacity: 0.04 !important;
             }}
 
-            .watermark-text,
-            .watermark-container img {{
-            opacity: 0.04 !important;  /* keep subtle but force render */
-            }}
+			.watermark-text,
+			.watermark-container img {{
+			opacity: 0.04 !important;  /* keep subtle but force render */
+			}}
     
             .invoice-page {{
                 width: 210mm;
@@ -1974,42 +1996,42 @@ def render_invoice_ui(df_main, mode="standard"):
             </div>
 
             {notes_section}
-            
+			
         </main>
 
         <footer class="z-10">
-            
-            <div class="text-center text-xs text-gray-400 italic mb-4">
-                Thank you for choosing Vesak Care Foundation!
-            </div>
-            
-            <div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
-            
-            <div class="flex justify-between items-center text-xs text-gray-500 h-10">
-                <div>
-                    <p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
-                    <div class="flex gap-2">
-                        <span>Pune</span><span class="text-vesak-gold">•</span>
-                        <span>Mumbai</span><span class="text-vesak-gold">•</span>
-                        <span>Kolhapur</span>
-                    </div>
-                </div>
+			
+			<div class="text-center text-xs text-gray-400 italic mb-4">
+				Thank you for choosing Vesak Care Foundation!
+			</div>
+			
+			<div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
+			
+			<div class="flex justify-between items-center text-xs text-gray-500 h-10">
+				<div>
+					<p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
+					<div class="flex gap-2">
+						<span>Pune</span><span class="text-vesak-gold">•</span>
+						<span>Mumbai</span><span class="text-vesak-gold">•</span>
+						<span>Kolhapur</span>
+					</div>
+				</div>
 
-                <div class="flex items-center gap-6">
-                    <a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-                        <i class="fab fa-instagram text-lg"></i>
-                        <span>@VesakCare</span>
-                    </a>
-                    
-                    <a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-                        <i class="fab fa-facebook text-lg"></i>
-                        <span>@VesakCare</span>
-                    </a>
-                </div>
-            </div>
-        
-            <div class="mt-4 w-full h-1 bg-vesak-navy"></div>                
-                
+				<div class="flex items-center gap-6">
+					<a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+						<i class="fab fa-instagram text-lg"></i>
+						<span>@VesakCare</span>
+					</a>
+					
+					<a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+						<i class="fab fa-facebook text-lg"></i>
+						<span>@VesakCare</span>
+					</a>
+				</div>
+			</div>
+		
+			<div class="mt-4 w-full h-1 bg-vesak-navy"></div>				
+				
         </footer>
     </div>
 
@@ -2028,7 +2050,7 @@ def render_invoice_ui(df_main, mode="standard"):
     </script>
 </body>
 </html>
-"""
+
         # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
         components.html(html_content, height=1000, scrolling=True)
 
@@ -2080,7 +2102,7 @@ if raw_file_obj:
                                     st.download_button("Download PDF", pdf_dup, file_name=f"Duplicate-{row['Invoice Number']}.pdf")
                                 else:
                                     st.error("Error generating PDF file.")
-                    else: st.warning("No records found in this month.")
+                    else: 
                 except Exception as e: st.error(f"Could not load history for this month: {e}")
 
         with tab4:
@@ -2130,7 +2152,7 @@ if raw_file_obj:
                         else: st.error("❌ Invoice not found in current month's sheet.")
                 except Exception as e: st.error(f"Error accessing sheet: {e}")
             else:
-                st.warning("Please configure Master Sheet URL in Sidebar.")
+                
 
         with tab6:
             st.header("📝 Create Agreements")
@@ -2153,7 +2175,7 @@ if raw_file_obj:
             df_ag['Ref_Clean'] = df_ag['Ref. No.'].astype(str).str.strip()
             df_ag['Label'] = df_ag['Name'].astype(str) + " (" + df_ag['Mobile'].astype(str) + ")"
             
-            if df_ag.empty: st.warning("No customers found.")
+            if df_ag.empty: 
             else:
                 sel_cust_ag = st.selectbox("Select Customer for Agreement:", [""] + list(df_ag['Label'].unique()), key="sel_ag")
                 if sel_cust_ag:
@@ -2168,7 +2190,7 @@ if raw_file_obj:
                         if st.button("Nurse Agreement", key="btn_nu_ag"):
                             display_type = "NURSE AGREEMENT"
                             file_name = generate_filename("Nurse", "AGR", row_ag['Name'])
-                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
+                            html_content = f<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>
                             pdf_bytes = convert_html_to_pdf(html_content)
                             if pdf_bytes: st.download_button(f"⬇️ Download Nurse Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
                     
@@ -2176,15 +2198,8 @@ if raw_file_obj:
                         if st.button("Patient Agreement", key="btn_pa_ag"):
                             display_type = "PATIENT AGREEMENT"
                             file_name = generate_filename("Patient", "AGR", row_ag['Name'])
-                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
+                            html_content = f<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>
                             pdf_bytes = convert_html_to_pdf(html_content)
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
-
-
-
-
-
-
-
