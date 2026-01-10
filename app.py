@@ -3,6 +3,7 @@ import pandas as pd
 import base64
 import os
 import datetime
+import time		   
 import requests
 import math 
 import re 
@@ -1089,9 +1090,10 @@ with st.sidebar:
                     else: st.warning(msg)
             except Exception as e: st.error(f"Could not read Master Workbook: {e}")
 
-    
-    data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
-    if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
+# --- LOAD DATA ---
+st.sidebar.header("📂 Load Customer Data")											
+data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
+if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
 
 # --- LOAD INPUT FILE ---
 raw_file_obj = None
@@ -1234,7 +1236,10 @@ def render_invoice_ui(df_main, mode="standard"):
             df_history['Ref_Norm'] = df_history['Ref. No.'].apply(lambda x: normalize_id(x).strip())
             df_history['Ser_Norm'] = df_history['Serial No.'].apply(lambda x: normalize_id(x).strip())
     
-            # MATCH USING ONLY REF + SERIAL
+            # ⭐ CHANGE #8: FIXED CONFLICT DETECTION LOGIC - MATCH ONLY ON REF. NO. AND SERIAL NO.
+            # DO NOT MATCH ON INVOICE NO. because it changes for each invoice
+            # This ensures we detect existing customers regardless of how many invoices they have
+            # Location: Lines 993-998									 
             match_mask = (
                 (df_history['Ref_Norm'].astype(str) == str(c_ref)) &
                 (df_history['Ser_Norm'].astype(str) == str(c_serial))
@@ -1255,6 +1260,7 @@ def render_invoice_ui(df_main, mode="standard"):
                 # Paid Units
                 raw_paid_val = last_match.get('Paid for', '')
                 try:
+																 
                     if raw_paid_val and str(raw_paid_val).strip().isdigit():
                         default_qty = int(str(raw_paid_val).strip())
                     else:
@@ -1292,6 +1298,11 @@ def render_invoice_ui(df_main, mode="standard"):
                 except:
                     existing_row_idx = None
     
+																			  
+																					
+														 
+														 
+										
             else:
                 default_qty = 1
                 conflict_exists = False
@@ -1510,7 +1521,11 @@ def render_invoice_ui(df_main, mode="standard"):
         
         # ⭐ CHANGE #1: AUTO-RESET INVOICE DATE
         # Reset the date field to today's date after successful creation
-        st.session_state[f"inv_d_{mode}"] = datetime.date.today()
+        st.session_state.update({
+            f"inv_d_{mode}": datetime.date.today(),
+            f"ow_{mode}": False
+        })
+        st.rerun()
         
         # ⭐ CHANGE #2: AUTO-RESET OVERWRITE CHECKBOX
         # Reset checkbox to unchecked after successful creation
@@ -1892,6 +1907,7 @@ if raw_file_obj:
         st.error(f"Error loading file: {e}")
 else:
     st.info("👈 Upload or link your customer data file to get started!")
+
 
 
 
