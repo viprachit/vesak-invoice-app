@@ -1366,13 +1366,14 @@ def render_invoice_ui(df_main, mode="standard"):
 </body>
 </html>
 """
-    # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
-    components.html(html_content, height=1000, scrolling=True)
+																	  
+															  
     # ========================================================
-
+    # ⭐ BUTTONS MOVED HERE (ABOVE THE PREVIEW)
+    # ========================================================
     btn_save = False
 
-    # ⭐ CHANGE #5: BUTTON STATE LOGIC (NO WARNING BEFORE DOWNLOAD/PRINT)
+																		  
     
     if conflict_exists:
         if chk_overwrite:
@@ -1381,6 +1382,12 @@ def render_invoice_ui(df_main, mode="standard"):
             st.button("Create Invoice", disabled=True, key=f"b_cr_dis_{mode}")
     else:
         if st.button("Create Invoice", type="primary", key=f"b_cr_{mode}"): btn_save = True
+    
+    st.markdown("---")  # Optional: Visual separator between buttons and preview
+    
+    # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
+    components.html(html_content, height=1000, scrolling=True)
+    # ========================================================
 
     if btn_save:
         rate = float(row.get('Unit Rate', 0))
