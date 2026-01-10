@@ -1219,16 +1219,18 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 # ==========================================
 def render_invoice_ui(df_main, mode="standard"):
     # 1. Connect to Master Sheet (MOVED UP FOR EXCLUSION LOGIC)
+
     # ===== CACHE SHEET CLIENT + MASTER ID @ START =====
-	# Avoid re-instantiating on every rerun
-	if "gs_client" not in st.session_state:
-	    st.session_state["gs_client"] = get_gspread_client()
-	client = st.session_state["gs_client"]
-	
-	master_id = extract_id_from_url(sys_config.get("master_sheet_url"))
+    # Avoid re-instantiating on every rerun
+    if "gs_client" not in st.session_state:
+        st.session_state["gs_client"] = get_gspread_client()
+    client = st.session_state["gs_client"]
+
+    master_id = extract_id_from_url(sys_config.get("master_sheet_url"))
 
     if not master_id or not client:
-        st.error("❌ Master Workbook not linked in Sidebar Settings."); return
+        st.error("❌ Master Workbook not linked in Sidebar Settings.")
+		return
 
     # --- FILTER SECTION ---
     st.subheader("1. Select Customer")
@@ -2211,6 +2213,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
