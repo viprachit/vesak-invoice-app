@@ -1310,14 +1310,6 @@ def render_invoice_ui(df_main, mode="standard"):
     st.divider()
     st.subheader("2. Invoice Details")
     
-    # Overwrite Checkbox (state bound to session_state)
-    chk_overwrite = st.checkbox(
-        "Overwrite Existing Invoice",
-        key=f"ow_{mode}",
-        value=st.session_state.chk_overwrite
-    )
-    st.session_state.chk_overwrite = chk_overwrite
-
     # Overwrite Checkbox (Moved up to control Disabled state)
     # Overwrite Checkbox (state bound to session_state)
     chk_overwrite = st.checkbox(
@@ -2210,4 +2202,5 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
