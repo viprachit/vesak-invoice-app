@@ -1529,26 +1529,7 @@ def render_invoice_ui(df_main, mode="standard"):
     # --- UPDATED: Removed Nurse/Patient Buttons from here ---
     btn_save = False
 
-    # ==========================================
-    # SECTION 5: ADD WARNING DIALOG IN render_invoice_ui()
-    # ==========================================
-    # Location: In render_invoice_ui() function, BEFORE PDF generation buttons [Around Line ~1500-1600]
-    # Status: UX ENHANCEMENT
-    # What to add: Insert this warning BEFORE the Download/Print buttons
-
-    # Add this code block in the render_invoice_ui() function where PDF buttons are shown:
-    """
-    # === NEW CODE: Add warning before PDF buttons ===
-    st.warning(
-        "⚠️ **Important Notice:** "
-        "When generating Download or Print PDFs, if the invoice footer appears on a 2nd page, "
-        "the page break may not be perfectly aligned. "
-        "**Recommended:** Use 'Print → Save as PDF' for the best single-page output with watermark embedded.",
-        icon="📄"
-    )
-    # === END NEW CODE ===
-    """
-
+    
     # ==========================================
     # SECTION 6: UPDATE PDF GENERATION IN render_invoice_ui()
     # ==========================================
@@ -2202,6 +2183,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
