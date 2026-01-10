@@ -1349,7 +1349,7 @@ def render_invoice_ui(df_main, mode="standard"):
 
     # df_history = pd.DataFrame()
     if sheet_obj:
-        master_records = cached_month_history(master_id, mmm_yy)
+        master_records = get_cached_exclusion_list(master_id, mmm_yy)
         df_history = pd.DataFrame(master_records) if master_records else pd.DataFrame()
 
         if not df_history.empty:
@@ -2202,5 +2202,6 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
