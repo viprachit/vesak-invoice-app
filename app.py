@@ -3,7 +3,7 @@ import pandas as pd
 import base64
 import os
 import datetime
-import time
+import time		   
 import requests
 import math 
 import re 
@@ -884,7 +884,7 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         if existing_uids: new_uid = max(existing_uids) + 1
         else: new_uid = 1
         final_uid = f"{new_uid:04d}"
-        
+
         formula_net_amount = f"=U{next_row_num}-AA{next_row_num}"
         formula_earnings = f"=AB{next_row_num}-(AC{next_row_num}*AD{next_row_num})"
         
@@ -1091,7 +1091,7 @@ with st.sidebar:
             except Exception as e: st.error(f"Could not read Master Workbook: {e}")
 
 # --- LOAD DATA ---
-st.sidebar.header("📂 Load Customer Data")
+st.sidebar.header("📂 Load Customer Data")											
 data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
 if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
 
@@ -1225,84 +1225,78 @@ def render_invoice_ui(df_main, mode="standard"):
         st.error(f"Connection Error: {e}")
         return
 
-								 
-								   
+    # df_history = pd.DataFrame()
+    # THE OVERWRITE FUNCTION LOGIC 
     if sheet_obj:
         master_records = sheet_obj.get_all_records()
         df_history = pd.DataFrame(master_records)
-
+    
         if not df_history.empty:
-													  
+            # Normalize values for accurate comparison
             df_history['Ref_Norm'] = df_history['Ref. No.'].apply(lambda x: normalize_id(x).strip())
             df_history['Ser_Norm'] = df_history['Serial No.'].apply(lambda x: normalize_id(x).strip())
-
+    
             # ⭐ CHANGE #8: FIXED CONFLICT DETECTION LOGIC - MATCH ONLY ON REF. NO. AND SERIAL NO.
             # DO NOT MATCH ON INVOICE NO. because it changes for each invoice
             # This ensures we detect existing customers regardless of how many invoices they have
-            # Location: Lines 993-998
+            # Location: Lines 993-998									 
             match_mask = (
                 (df_history['Ref_Norm'].astype(str) == str(c_ref)) &
                 (df_history['Ser_Norm'].astype(str) == str(c_serial))
             )
-	
+    
             existing_matches = df_history[match_mask]
-
+    
             if not existing_matches.empty:
                 conflict_exists = True
                 last_match = existing_matches.iloc[-1]
-
+    
                 inv_final = str(last_match.get('Invoice Number', ''))
-
+    
                 hist_note = str(last_match.get('Notes / Remarks', '')).strip()
                 if hist_note:
                     default_notes = hist_note
-
-							
-															 
+    
+                # Paid Units
+                raw_paid_val = last_match.get('Paid for', '')
                 try:
-                    raw_paid_val = last_match.get('Paid for', '')
                     if raw_paid_val and str(raw_paid_val).strip().isdigit():
                         default_qty = int(str(raw_paid_val).strip())
                     else:
                         hist_details = str(last_match.get('Details', ''))
-                        match_qty = re.search(r'Paid for\s*(\d+)', hist_details, re.IGNORECASE)
-												
-										 
-										 
-						 
+                        match_qty = re.search(
+                            r'Paid for\s*(\d+)',
+                            hist_details,
+                            re.IGNORECASE
+                        )
                         if match_qty:
                             default_qty = int(match_qty.group(1))
                 except:
                     pass
-
-					  
+    
+                # Date
                 try:
                     hist_date_str = str(last_match.get('Date', ''))
-                    clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
-											  
-							  
-									 
-					 
-                    default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
-									   
-								   
-							
+                    clean_date_str = re.sub(
+                        r'(\d+)(st|nd|rd|th)',
+                        r'\1',
+                        hist_date_str
+                    )
+                    default_date = datetime.datetime.strptime(
+                        clean_date_str,
+                        "%b. %d %Y"
+                    ).date()
                 except:
                     pass
-
-															 
+    
+                # Get existing row index (WITHOUT Invoice No)
                 try:
-                    cell_match = sheet_obj.find(inv_final, in_column=4)
-                    if cell_match:
-                        existing_row_idx = cell_match.row
+                    # Since we aren't matching invoice no, search manually
+                    idx = existing_matches.index.tolist()[-1]
+                    existing_row_idx = idx + 2   # +2 for header
                 except:
-                    pass
-                
-                # ⭐ CHANGE #3: AUTO-ENABLE OVERWRITE FOR DUPLICATE CUSTOMERS
-                # When duplicate customer detected, automatically check the checkbox
-                if conflict_exists and not chk_overwrite:
-                    st.session_state.chk_overwrite = True
-                    chk_overwrite = True
+                    existing_row_idx = None
+    
             else:
                 default_qty = 1
                 conflict_exists = False
@@ -1410,9 +1404,9 @@ def render_invoice_ui(df_main, mode="standard"):
 
     btn_save = False
 
-																		  
-														   
-																					 
+    # ⭐ CHANGE #5: BUTTON STATE LOGIC (NO WARNING BEFORE DOWNLOAD/PRINT)
+    # The warning block has been REMOVED entirely from here
+    # Users can now directly access Download/Print buttons without any warning dialog
 
     if conflict_exists:
         if chk_overwrite:
@@ -1519,20 +1513,20 @@ def render_invoice_ui(df_main, mode="standard"):
             st.success("Created New Row!")
         st.balloons()
         
-        # ⭐ CHANGE #1 & #2: AUTO-RESET AFTER SUCCESSFUL SAVE
-        # Use st.rerun() to refresh the entire page
-        # This automatically resets all session states and widgets
-        time.sleep(1)  # Brief delay for user to see success message
-							   
-		  
+        # ⭐ CHANGE #1: AUTO-RESET INVOICE DATE
+        # Reset the date field to today's date after successful creation
+        st.session_state.update({
+            f"inv_d_{mode}": datetime.date.today(),
+            f"ow_{mode}": False
+        })
         st.rerun()
-		
-													  
-															   
-											  
-		
-													  
-																						   
+        
+        # ⭐ CHANGE #2: AUTO-RESET OVERWRITE CHECKBOX
+        # Reset checkbox to unchecked after successful creation
+        st.session_state.chk_overwrite = False
+        
+        # ⭐ CHANGE #6 CONTINUED: REMOVE PAGE RELOADS
+        # Removed st.rerun() call - using direct state updates instead for instant feedback
 
     if btn_save:
         doc_type = "Invoice"
@@ -1838,7 +1832,7 @@ def render_invoice_ui(df_main, mode="standard"):
 </body>
 </html>
 """
-        # ⭐ RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
+        # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
         components.html(html_content, height=1000, scrolling=True)
 
 if raw_file_obj:
@@ -1865,48 +1859,131 @@ if raw_file_obj:
             st.header("©️ Duplicate Invoice")
             client = get_gspread_client()
             mid = extract_id_from_url(sys_config.get("master_sheet_url"))
+            dup_date = st.date_input("Select Month:", value=datetime.date.today())
+            mmm_yy = dup_date.strftime("%b-%y")
             
             if client and mid:
                 try:
                     wb = client.open_by_key(mid)
-                    dup_date = st.date_input("Select Invoice Date:", value=datetime.date.today())
-                    dup_mmyy = dup_date.strftime("%b-%y")
-                    
-                    try:
-                        ws = wb.worksheet(dup_mmyy)
-                        all_recs = ws.get_all_records()
-                        if all_recs:
-                            df_dup = pd.DataFrame(all_recs)
-                            inv_list = df_dup['Invoice Number'].astype(str).unique()
-                            sel_inv = st.selectbox("Select Invoice to Duplicate:", inv_list)
-                            
-                            if sel_inv and st.button("Create Duplicate"):
-                                st.info(f"Duplicate creation for {sel_inv} - Feature coming soon!")
-                        else:
-                            st.warning(f"No invoices in {dup_mmyy}")
-                    except gspread.exceptions.WorksheetNotFound:
-                        st.warning(f"No data for {dup_mmyy}")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-            else:
-                st.error("Configure Master Workbook in Sidebar first")
-        
+                    ws = wb.worksheet(mmm_yy)
+                    df_hist = pd.DataFrame(ws.get_all_records())
+                    if not df_hist.empty and 'Invoice Number' in df_hist.columns:
+                        df_hist['Display'] = df_hist['Invoice Number'].astype(str) + " - " + df_hist['Customer Name']
+                        sel_dup = st.selectbox("Select Invoice:", df_hist['Display'].unique())
+                        if sel_dup:
+                            row = df_hist[df_hist['Display'] == sel_dup].iloc[0]
+                            st.info(f"Selected: {row['Customer Name']}")
+                            if st.button("Generate Duplicate PDF"):
+                                data_map = row.to_dict()
+                                data_map['Paid for Raw'] = row.get('Paid for', 1) 
+                                html_dup = construct_offline_invoice_html(data_map, logo_b64, doc_type="DUPLICATE INVOICE")
+                                pdf_dup = convert_html_to_pdf(html_dup)
+                                
+                                if pdf_dup:
+                                    st.download_button("Download PDF", pdf_dup, file_name=f"Duplicate-{row['Invoice Number']}.pdf")
+                                else:
+                                    st.error("Error generating PDF file.")
+                    else: st.warning("No records found in this month.")
+                except Exception as e: st.error(f"Could not load history for this month: {e}")
+
         with tab4:
             st.header("🛠 Manage Services")
-            st.info("Service management features coming soon!")
+            SERVICES_MASTER = {
+                "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
+                "Plan B: Skilled Nursing": ["All", "Intravenous (IV) Therapy & Injections", "Medication Management", "Advanced Wound Care", "Catheter & Ostomy Care", "Post-Surgical Care"],
+                "Plan C: Chronic Management": ["All", "Care for Bed-Ridden Patients", "Dementia & Alzheimer's Care", "Disability Support"],
+                "Plan D: Elderly Companion": ["All", "Companionship & Conversation", "Fall Prevention & Mobility", "Light Meal Preparation"],
+                "Plan E: Maternal & Newborn": ["All", "Postnatal & Maternal Care", "Newborn Care Assistance"],
+                "Plan F: Rehabilitative Care": ["Therapeutic Massage", "Exercise Therapy", "Geriatric Rehabilitation", "Neuro Rehabilitation", "Pain Management", "Post Op Rehab"],
+                "A-la-carte Services": ["Hospital Visits", "Medical Equipment", "Medicines", "Diagnostic Services", "Nutrition Consultation", "Ambulance", "Doctor Visits", "X-Ray", "Blood Collection"]
+            }
+            ms_plan = st.selectbox("Select Plan to View:", list(SERVICES_MASTER.keys()))
+            ms_sub = st.text_input("Simulate Sub-Services Input:", value="All")
+            inc, exc = get_base_lists(ms_plan, ms_sub)
+            c1, c2 = st.columns(2)
+            with c1: 
+                st.success(f"✅ Included ({len(inc)})")
+                for i in inc: st.write(f"- {i}")
+            with c2: 
+                st.error(f"❌ Excluded ({len(exc)})")
+                for e in exc: st.write(f"- {e}")
         
         with tab5:
-            st.header("💰 Nurse Management")
-            st.info("Nurse payment tracking coming soon!")
-        
+            st.header("Nurse Management")
+            client = get_gspread_client()
+            mid = extract_id_from_url(sys_config.get("master_sheet_url"))
+            
+            if client and mid:
+                try:
+                    wb = client.open_by_key(mid)
+                    ws = wb.worksheet(datetime.date.today().strftime("%b-%y"))
+                    st.write("Enter Invoice Number to manage nurse payments:")
+                    inv_to_pay = st.text_input("Invoice No:")
+                    st.divider()
+                    col_n1, col_n2 = st.columns(2)
+                    with col_n1:
+                        amt = st.number_input("Nurse Payment Amount:", min_value=0.0)
+                        nm = st.text_input("Nurse Name:")
+                    with col_n2:
+                        nm_extra = st.text_input("Nurse Name (Extra):")
+                        nm_note = st.text_area("Nurse Note")
+                    if st.button("Update Nurse Details (Overwrite)"):
+                        success, form = update_nurse_management(ws, inv_to_pay, amt, nm, nm_extra, nm_note)
+                        if success: st.success("✅ Nurse details updated successfully in sheet!")
+                        else: st.error("❌ Invoice not found in current month's sheet.")
+                except Exception as e: st.error(f"Error accessing sheet: {e}")
+            else:
+                st.warning("Please configure Master Sheet URL in Sidebar.")
+
         with tab6:
             st.header("📝 Create Agreements")
-            st.info("Agreement creation coming soon!")
-    
-    except Exception as e:
-        st.error(f"Error loading file: {e}")
-else:
-    st.info("👈 Upload or link your customer data file to get started!")
+            
+            use_filt_ag = st.checkbox("🔍 Enable Search Filters (Date/Location)", key="use_filt_ag")
+            df_ag = df.copy()
+            
+            if use_filt_ag:
+                c1, c2 = st.columns(2)
+                with c1: f_dt = st.date_input("Filter Date:", value=datetime.date.today(), key="ag_dt")
+                with c2: 
+                    u_locs = ["All"] + sorted(list(df['Location'].astype(str).unique()))
+                    f_lc = st.selectbox("Filter Location:", u_locs, key="ag_lc")
+                
+                if 'Call Date' in df_ag.columns:
+                    df_ag['TempDate'] = pd.to_datetime(df_ag['Call Date'], errors='coerce').dt.date
+                    df_ag = df_ag[df_ag['TempDate'] == f_dt]
+                if f_lc != "All": df_ag = df_ag[df_ag['Location'].astype(str) == f_lc]
+            
+            df_ag['Ref_Clean'] = df_ag['Ref. No.'].astype(str).str.strip()
+            df_ag['Label'] = df_ag['Name'].astype(str) + " (" + df_ag['Mobile'].astype(str) + ")"
+            
+            if df_ag.empty: st.warning("No customers found.")
+            else:
+                sel_cust_ag = st.selectbox("Select Customer for Agreement:", [""] + list(df_ag['Label'].unique()), key="sel_ag")
+                if sel_cust_ag:
+                    row_ag = df_ag[df_ag['Label'] == sel_cust_ag].iloc[0]
+                    st.info(f"Selected: {row_ag['Name']} | Ref: {normalize_id(row_ag.get('Ref. No.'))}")
+                    
+                    c_ref_ag = normalize_id(row_ag.get('Ref. No.', ''))
+                    pdf_date_str = format_date_with_suffix(datetime.date.today())
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1: 
+                        if st.button("Nurse Agreement", key="btn_nu_ag"):
+                            display_type = "NURSE AGREEMENT"
+                            file_name = generate_filename("Nurse", "AGR", row_ag['Name'])
+                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
+                            pdf_bytes = convert_html_to_pdf(html_content)
+                            if pdf_bytes: st.download_button(f"⬇️ Download Nurse Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+                    
+                    with col_b2: 
+                        if st.button("Patient Agreement", key="btn_pa_ag"):
+                            display_type = "PATIENT AGREEMENT"
+                            file_name = generate_filename("Patient", "AGR", row_ag['Name'])
+                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
+                            pdf_bytes = convert_html_to_pdf(html_content)
+                            if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+
+    except Exception as e: st.error(f"Error: {e}")
 
 
 
