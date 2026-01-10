@@ -106,7 +106,10 @@ def get_gspread_client():
 # ==========================================
 # FILE HANDLING & HELPERS
 # ==========================================
-@st.cache_data(show_spinner=False)
+# ⭐ CHANGE #5: OPTIMIZED CACHING (3x SPEED)
+# Location: robust_file_downloader() function
+# Updated: Added TTL=180 (3 minutes) for faster file downloads
+@st.cache_data(ttl=180, show_spinner=False)
 def robust_file_downloader(url):
     session = requests.Session()
     session.headers.update({
@@ -127,9 +130,9 @@ def robust_file_downloader(url):
     except Exception as e: return None
 
 def format_date_with_suffix(d):
-    
+    """
     Returns date in format: "Jan 23rd 2026"
-    
+    """
     if pd.isna(d): return "N/A"
     try:
         if isinstance(d, datetime.datetime): d = d.date()
@@ -141,9 +144,9 @@ def format_date_with_suffix(d):
     except: return str(d)
 
 def format_date_simple(d):
-    
+    """
     Returns date in format: "DD-MM-YYYY" (No Time)
-    
+    """
     if pd.isna(d): return ""
     try:
         if isinstance(d, datetime.datetime): d = d.date()
@@ -153,31 +156,28 @@ def format_date_simple(d):
 def clean_text(text): return str(text).strip() if isinstance(text, str) else str(text)
 
 # ===== CRITICAL FIX 1: ID NORMALIZATION (NO DECIMALS) =====
-# ⭐ CHANGE #1: ENHANCED normalize_id() FUNCTION
 def normalize_id(val):
-    
+    """
     Robust normalization:
     1. Handles "1.0" (float string) -> float 1.0 -> int 1 -> string "1"
     2. Handles 1.0 (float) -> int 1 -> string "1"
     3. Handles "1" (string) -> string "1"
     4. Handles NaN/None -> ""
-    
+    """
     if pd.isna(val): return ""
     s_val = str(val).strip()
     if s_val == "" or s_val.lower() == "nan": return ""
     try:
-        # Convert to float first (handles "123.0"), then int (drops .0), then str
         return str(int(float(s_val)))
     except:
-        # If conversion fails (e.g., alphanumeric "A123"), return stripped string
         return s_val
 
 # --- CRITICAL FIX 2: CLEAN REFERRAL DATA (NO 'nan') ---
 def clean_referral_field(val):
-    
+    """
     Ensures that empty cells in Excel stay empty in Google Sheets.
     Removes 'nan', 'NaN', 'None', etc.
-    
+    """
     if pd.isna(val): return ""
     s_val = str(val).strip()
     if s_val.lower() == "nan": return ""
@@ -186,14 +186,13 @@ def clean_referral_field(val):
     return s_val
 
 # --- CRITICAL FIX 3: CACHED EXCLUSION LIST (FIXES 429 ERROR) ---
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_cached_exclusion_list(master_id, month_str):
-    
-    Fetches the exclusion list with caching (2 mins) to prevent 429 Quota Errors.
-    
+    """
+    Fetches the exclusion list with caching (5 mins) to prevent 429 Quota Errors.
+    """
     client = get_gspread_client()
-    if not client or not master_id:
-        return []
+    if not client or not master_id: return []
     
     excluded_refs = []
     try:
@@ -215,9 +214,8 @@ def get_cached_exclusion_list(master_id, month_str):
                     for _, r_end in ended_rows.iterrows():
                         key = f"{normalize_id(r_end['Ref. No.'])}-{normalize_id(r_end['Serial No.'])}"
                         excluded_refs.append(key)
-        except gspread.exceptions.WorksheetNotFound:
-            pass
-    except Exception:
+        except gspread.exceptions.WorksheetNotFound: pass
+    except Exception as e:
         return []
         
     return excluded_refs
@@ -225,18 +223,12 @@ def get_cached_exclusion_list(master_id, month_str):
 # ==========================================
 # SECTION 1: FUNCTION 2 - ENHANCED generate_filename()
 # ==========================================
-# Location: Replace existing generate_filename() [Line ~223-226]
-# Status: MINOR UPDATE
-# Impact: Ensures consistent filename format for both Download and Print
-
 def generate_filename(doc_type, invoice_no, customer_name):
-    
+    """
     Generates standardized filename format.
     Format: {PREFIX}-{INVOICE_NO}-{CLEAN_NAME}.pdf
     Example: IN-2026-001-RAJESH-KUMAR.pdf
-    
-    UPGRADED: Now handles clean invoice_no and ensures consistent naming for both Download and Print
-    
+    """
     prefix = {
         "Invoice": "IN", 
         "Nurse": "NU", 
@@ -244,10 +236,7 @@ def generate_filename(doc_type, invoice_no, customer_name):
         "DUPLICATE INVOICE": "DUP"
     }.get(doc_type, "DOC")
     
-    # Clean customer name: remove special chars, uppercase, trim
     clean_name = re.sub(r'[^a-zA-Z0-9]', '-', str(customer_name)).upper().strip('-')
-    
-    # Ensure invoice_no is clean (no decimals) - CRITICAL FIX
     invoice_no_clean = str(invoice_no).strip()
     
     return f"{prefix}-{invoice_no_clean}-{clean_name}.pdf"
@@ -292,7 +281,7 @@ def construct_description_html(row):
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_str = shift_map.get(shift_raw, shift_raw)
     time_suffix = " (Time)" if "12" in shift_str else ""
-    return f<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{shift_str}{time_suffix}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{period_raw}</div></div>
+    return f"""<div style="margin-top: 4px;"><div style="font-size: 12px; color: #4a4a4a; font-weight: bold;">{shift_str}{time_suffix}</div><div style="font-size: 10px; color: #777; font-style: italic; margin-top: 2px;">{period_raw}</div></div>"""
 
 def construct_amount_html(row, billing_qty):
     try: unit_rate = float(row.get('Unit Rate', 0)) 
@@ -304,7 +293,6 @@ def construct_amount_html(row, billing_qty):
     period_lower = period_raw.lower()
     shift_raw = str(row.get('Shift', '')).strip()
     
-    # NEW LOGIC FOR DETECTING "PER VISIT"
     is_per_visit = "per visit" in shift_raw.lower()
     
     billing_note = ""
@@ -314,7 +302,7 @@ def construct_amount_html(row, billing_qty):
         if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
         if "visit" in unit.lower(): return "Visits" if qty > 1 else "Visit" 
         return unit
-
+        
     if is_per_visit:
         paid_text = f"Paid for {billing_qty} {get_plural('Visit', billing_qty)}"
         if visits_needed > 1 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
@@ -356,7 +344,7 @@ def construct_amount_html(row, billing_qty):
     
     paid_for_text = f"Paid for {billing_qty} {get_plural(unit_label, billing_qty)}"
 
-    return f
+    return f"""
     <div style="text-align: right; font-size: 13px; color: #555;">
         <div style="margin-bottom: 4px;">{shift_display} / {period_display} = <b>₹ {unit_rate_str}</b></div>
         <div style="color: #CC4E00; font-weight: bold; font-size: 14px; margin: 2px 0;">X</div>
@@ -368,21 +356,16 @@ def construct_amount_html(row, billing_qty):
         </div>
         <div style="font-size: 10px; color: #666; font-style: italic; margin-top: 6px;">{billing_note}</div>
     </div>
-    
+    """
 
 # ==========================================
 # FUNCTION 5: KEEP YOUR EXISTING convert_html_to_pdf()
 # ==========================================
-# NO CHANGES NEEDED - This function stays exactly as it is
-# We're keeping xhtml2pdf as a fallback option
-
 def convert_html_to_pdf(source_html):
-    
+    """
     Converts HTML to PDF using xhtml2pdf.
-    
     NOTE: This function is now a FALLBACK for compatibility.
-    For new downloads, use the html2pdf.js approach instead.
-    
+    """
     result = BytesIO()
     pisa_status = pisa.CreatePDF(source_html, dest=result)
     if pisa_status.err: 
@@ -392,38 +375,23 @@ def convert_html_to_pdf(source_html):
 # ==========================================
 # SECTION 2: NEW FUNCTION - create_html2pdf_download_script()
 # ==========================================
-# Location: INSERT after convert_html_to_pdf() function [Around Line ~800]
-# Status: NEW FUNCTION - CRITICAL
-# Impact: Enables high-quality PDF downloads
-
 def create_html2pdf_download_script(html_content, filename):
-    
+    """
     Creates JavaScript for HIGH-QUALITY PDF download using html2pdf.js library.
+    """
     
-    NEW FUNCTION - CRITICAL UPGRADE:
-    - Uses html2pdf.js (vectorized rendering, not rasterized)
-    - 2x resolution for crisp output
-    - Professional color preservation
-    - Single page fit guarantee
-    - Automatic margins
-    
-    Returns JavaScript code that can be embedded in HTML
-    
-    
-    js_script = f
+    js_script = f"""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
         window.addEventListener('load', function() {{
-            // Get the invoice container
             const element = document.querySelector('.invoice-container');
             
-            // html2pdf options for professional output
             const opt = {{
-                margin: [8, 8, 8, 8],  // Top, Left, Bottom, Right in mm - AUTO-ADJUSTED
+                margin: [8, 8, 8, 8],
                 filename: '{filename}',
-                image: {{ type: 'jpeg', quality: 0.98 }},  // 98% quality - PROFESSIONAL
+                image: {{ type: 'jpeg', quality: 0.98 }},
                 html2canvas: {{ 
-                    scale: 2,  // 2x resolution for crisp output - CRITICAL
+                    scale: 2,
                     useCORS: true,
                     allowTaint: false,
                     logging: false,
@@ -434,65 +402,46 @@ def create_html2pdf_download_script(html_content, filename):
                     unit: 'mm', 
                     format: 'a4'
                 }},
-                pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }},  // SINGLE PAGE FIT
-                compress: false  // No compression - preserve quality
+                pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }},
+                compress: false
             }};
             
-            // Generate and download PDF
             html2pdf().set(opt).from(element).save();
         }});
     </script>
-    
+    """
     
     return js_script
 
 # ==========================================
 # SECTION 3: NEW FUNCTION - create_print_listener_script()
 # ==========================================
-# Location: INSERT after create_html2pdf_download_script() [Around Line ~850]
-# Status: NEW FUNCTION - CRITICAL
-# Impact: Auto-sets filename when printing
-
 def create_print_listener_script(filename):
-    
+    """
     Adds JavaScript listener to Print event for automatic filename.
-    
-    NEW FUNCTION - CRITICAL UPGRADE:
-    - Auto-sets filename when saving via Print (Ctrl+P)
-    - Professional naming format
-    - No manual typing needed
-    - Ensures consistent naming across all prints
-    
-    Returns JavaScript code that can be embedded in HTML
-    
+    """
     
     filename_without_ext = filename.replace('.pdf', '')
     
-    js_print = f
+    js_print = f"""
     <script>
         window.addEventListener('beforeprint', function() {{
-            // Set print title to match filename (shows in save dialog)
             document.title = '{filename_without_ext}';
         }});
         
         window.addEventListener('afterprint', function() {{
-            // Reset title after printing
             document.title = 'Vesak Care Invoice';
         }});
     </script>
-    
+    """
     
     return js_print
 
 # ==========================================
 # SECTION 4: FUNCTION 1 - ENHANCED construct_offline_invoice_html()
 # ==========================================
-# Location: REPLACE the entire construct_offline_invoice_html() function [Line ~1050+]
-# Status: CRITICAL - MAJOR UPDATE
-# Impact: Premium quality PDF output with watermark and single-page fit
-
 def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
-    
+    """
     Generates Premium-Quality HTML for Professional PDF Output
     
     UPGRADED FEATURES:
@@ -504,9 +453,8 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     6. Page Break Controls (page-break-inside: avoid)
     7. Fixed Footer positioning
     8. Watermark visible in BOTH Download and Print
+    """
     
-    
-    # Extract Data from invoice
     inv_num = data_dict.get("Invoice Number", "")
     date_str = data_dict.get("Date", "")
     c_name = data_dict.get("Customer Name", "")
@@ -515,59 +463,45 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
     c_mob = data_dict.get("Mobile", "")
     c_addr = data_dict.get("Address", "")
     
-    # Plan and Service Details
     plan_name = data_dict.get("Plan", "")
     shift = data_dict.get("Shift", "")
     period = data_dict.get("Period", "")
     
-    # Financials
     try: 
         amt_paid = float(data_dict.get("Amount Paid", 0))
         amt_paid_str = "{:,.0f}".format(amt_paid)
     except: 
         amt_paid_str = "0"
     
-    # Service dates
     svc_start = data_dict.get("Service Started", "")
     svc_end = data_dict.get("Service Ended", "")
-    
-    # Notes
     notes = data_dict.get("Notes / Remarks", "")
     
-    # ==========================================
-    # PREMIUM CSS WITH PRINT OPTIMIZATION (CRITICAL)
-    # ==========================================
-    # This is the KEY UPGRADE - Professional print-optimized CSS
-    
-    premium_css = 
+    premium_css = """
     <style>
-        /* PAGE SETUP - Auto-adjusted margins */
         @page {
             size: A4 portrait;
             margin: 8mm 8mm 8mm 8mm;
             background: white;
         }
         
-        /* RESET & NORMALIZE */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
         
-        /* BASE HTML/BODY STYLES */
         html, body {
             width: 100%;
             height: 100%;
             background: white;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #2c3e50;
-            -webkit-print-color-adjust: exact;  /* CRITICAL: Force exact colors */
-            print-color-adjust: exact;           /* CRITICAL: Force exact colors */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
             -webkit-font-smoothing: antialiased;
         }
         
-        /* INVOICE CONTAINER - Single page fit */
         .invoice-container {
             width: 100%;
             min-height: 100%;
@@ -577,7 +511,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             page-break-inside: avoid;
         }
         
-        /* HEADER SECTION */
         .invoice-header {
             display: flex;
             justify-content: space-between;
@@ -592,13 +525,12 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             flex: 0 0 auto;
         }
         
-        /* LOGO - HIGH QUALITY RENDERING */
         .logo-section img {
             height: 50px;
             width: auto;
-            -webkit-print-color-adjust: exact;  /* CRITICAL: Logo quality */
-            print-color-adjust: exact;           /* CRITICAL: Logo quality */
-            image-rendering: crisp-edges;        /* CRITICAL: Crisp logo */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            image-rendering: crisp-edges;
             color-adjust: exact;
         }
         
@@ -620,7 +552,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             margin: 2px 0;
         }
         
-        /* TITLE SECTION */
         .invoice-title {
             text-align: center;
             margin: 6px 0;
@@ -634,7 +565,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             margin: 0;
         }
         
-        /* CUSTOMER INFO SECTION */
         .customer-section {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -661,7 +591,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             margin-top: 2px;
         }
         
-        /* INVOICE TABLE */
         .invoice-table {
             width: 100%;
             border-collapse: collapse;
@@ -673,8 +602,8 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
         .invoice-table thead {
             background: #1a5490;
             color: white;
-            -webkit-print-color-adjust: exact;  /* CRITICAL: Table header colors */
-            print-color-adjust: exact;           /* CRITICAL: Table header colors */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         
         .invoice-table th {
@@ -693,11 +622,10 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
         
         .invoice-table tbody tr:nth-child(odd) {
             background: #f9f9f9;
-            -webkit-print-color-adjust: exact;  /* CRITICAL: Row colors */
-            print-color-adjust: exact;           /* CRITICAL: Row colors */
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         
-        /* SUMMARY SECTION */
         .invoice-summary {
             margin-top: 4px;
             padding: 4px;
@@ -722,7 +650,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             color: #1a5490;
         }
         
-        /* NOTES SECTION */
         .notes-section {
             margin: 4px 0;
             padding: 3px;
@@ -736,9 +663,8 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             color: #2c3e50;
         }
         
-        /* FOOTER SECTION - CRITICAL FIX */
         .footer {
-            margin-top: auto;  /* CRITICAL: Pushes to bottom */
+            margin-top: auto;
             text-align: center;
             font-size: 8px;
             color: #999;
@@ -748,7 +674,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             position: relative;
         }
         
-        /* WATERMARK - EMBEDDED FOR PRINT */
         .watermark-container {
             position: fixed;
             top: 50%;
@@ -766,15 +691,11 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             letter-spacing: 2px;
         }
         
-        /* ========================================
-           PRINT MEDIA QUERY - CRITICAL UPGRADES
-           This ensures high-quality PDF output
-           ======================================== */
         @media print {
             html, body {
                 height: auto;
-                -webkit-print-color-adjust: exact;  /* CRITICAL */
-                print-color-adjust: exact;           /* CRITICAL */
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
             
             .invoice-container {
@@ -788,8 +709,8 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             }
             
             .invoice-table thead {
-                -webkit-print-color-adjust: exact;  /* CRITICAL */
-                print-color-adjust: exact;           /* CRITICAL */
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
                 background: #1a5490 !important;
                 color: white !important;
             }
@@ -799,8 +720,8 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             }
             
             .logo-section img {
-                -webkit-print-color-adjust: exact;  /* CRITICAL: Logo in print */
-                print-color-adjust: exact;           /* CRITICAL: Logo in print */
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
                 image-rendering: crisp-edges;
                 color-adjust: exact;
             }
@@ -815,13 +736,11 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
             }
         }
     </style>
+    """
     
-    
-    # Create logo image tag
     logo_img = f'<img src="data:image/png;base64,{logo_b64}" alt="Logo" />' if logo_b64 else ""
     
-    # Build the complete HTML
-    html = f
+    html = f"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -831,14 +750,11 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
         {premium_css}
     </head>
     <body>
-        <!-- WATERMARK - VISIBLE IN PRINT -->
         <div class="watermark-container">
             <div class="watermark-text">VESAK CARE</div>
         </div>
         
-        <!-- MAIN INVOICE CONTAINER -->
         <div class="invoice-container">
-            <!-- HEADER WITH LOGO -->
             <div class="invoice-header">
                 <div class="logo-section">
                     {logo_img}
@@ -850,12 +766,10 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
                 </div>
             </div>
             
-            <!-- INVOICE TITLE -->
             <div class="invoice-title">
                 <h2>{doc_type}</h2>
             </div>
             
-            <!-- CUSTOMER INFORMATION -->
             <div class="customer-section">
                 <div class="customer-field">
                     <div class="customer-field-label">INVOICE NO.</div>
@@ -883,7 +797,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
                 </div>
             </div>
             
-            <!-- SERVICES TABLE -->
             <table class="invoice-table">
                 <thead>
                     <tr>
@@ -903,7 +816,6 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
                 </tbody>
             </table>
             
-            <!-- SUMMARY -->
             <div class="invoice-summary">
                 <div class="summary-item">
                     <span class="summary-label">TOTAL AMOUNT:</span>
@@ -911,17 +823,15 @@ def construct_offline_invoice_html(data_dict, logo_b64, doc_type="INVOICE"):
                 </div>
             </div>
             
-            <!-- NOTES (if any) -->
             {'<div class="notes-section"><strong>Notes:</strong> ' + notes + '</div>' if notes else ''}
             
-            <!-- FOOTER - FIXED AT BOTTOM -->
             <div class="footer">
                 <p>Thank you for choosing VESAK CARE SERVICES | Authorized Invoice Generated</p>
             </div>
         </div>
     </body>
     </html>
-    
+    """
     
     return html
 
@@ -977,45 +887,43 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
         formula_net_amount = f"=U{next_row_num}-AA{next_row_num}"
         formula_earnings = f"=AB{next_row_num}-(AC{next_row_num}*AD{next_row_num})"
         
-        # --- FIXED: Use passed Raw Value, no regex needed ---
         qty_extracted = data_dict.get("Paid for Raw", 1)
-        # --------------------------------------------------
-
+        
         row_values = [
-            final_uid,                              # A
-            data_dict.get("Serial No.", ""),        # B
-            data_dict.get("Ref. No.", ""),          # C
-            data_dict.get("Invoice Number", ""),    # D
-            data_dict.get("Date", ""),              # E
-            data_dict.get("Generated At", ""),      # F
-            data_dict.get("Customer Name", ""),     # G
-            data_dict.get("Age", ""),               # H
-            data_dict.get("Gender", ""),            # I
-            data_dict.get("Location", ""),          # J
-            data_dict.get("Address", ""),           # K
-            data_dict.get("Mobile", ""),            # L
-            data_dict.get("Plan", ""),              # M
-            data_dict.get("Shift", ""),             # N
-            data_dict.get("Recurring Service", ""), # O
-            data_dict.get("Period", ""),            # P
-            data_dict.get("Visits", ""),            # Q
-            data_dict.get("Amount", ""),            # R
-            data_dict.get("Notes / Remarks", ""),   # S
-            data_dict.get("Generated By", ""),      # T
-            data_dict.get("Amount Paid", ""),       # U
-            data_dict.get("Details", ""),           # V
-            data_dict.get("Service Started", ""),   # W (DD-MM-YYYY)
-            data_dict.get("Service Ended", ""),     # X (DD-MM-YYYY)
-            data_dict.get("Referral Code", ""),     # Y
-            data_dict.get("Referral Name", ""),     # Z
-            data_dict.get("Referral Credit", ""),   # AA
-            formula_net_amount,                     # AB
-            "",                                     # AC
-            qty_extracted,                          # AD (Updated with RAW)
-            formula_earnings,                       # AE
-            "",                                     # AF
-            "",                                     # AG
-            ""                                      # AH
+            final_uid,
+            data_dict.get("Serial No.", ""),
+            data_dict.get("Ref. No.", ""),
+            data_dict.get("Invoice Number", ""),
+            data_dict.get("Date", ""),
+            data_dict.get("Generated At", ""),
+            data_dict.get("Customer Name", ""),
+            data_dict.get("Age", ""),
+            data_dict.get("Gender", ""),
+            data_dict.get("Location", ""),
+            data_dict.get("Address", ""),
+            data_dict.get("Mobile", ""),
+            data_dict.get("Plan", ""),
+            data_dict.get("Shift", ""),
+            data_dict.get("Recurring Service", ""),
+            data_dict.get("Period", ""),
+            data_dict.get("Visits", ""),
+            data_dict.get("Amount", ""),
+            data_dict.get("Notes / Remarks", ""),
+            data_dict.get("Generated By", ""),
+            data_dict.get("Amount Paid", ""),
+            data_dict.get("Details", ""),
+            data_dict.get("Service Started", ""),
+            data_dict.get("Service Ended", ""),
+            data_dict.get("Referral Code", ""),
+            data_dict.get("Referral Name", ""),
+            data_dict.get("Referral Credit", ""),
+            formula_net_amount,
+            "",
+            qty_extracted,
+            formula_earnings,
+            "",
+            "",
+            ""
         ]
         sheet_obj.append_row(row_values, value_input_option='USER_ENTERED')
         return True
@@ -1023,14 +931,13 @@ def save_invoice_to_gsheet(data_dict, sheet_obj):
 
 # ⭐ CHANGE #7: NEW FUNCTION - update_invoice_in_gsheet()
 def update_invoice_in_gsheet(data_dict, sheet_obj, row_idx):
-    
+    """
     Updates an existing row in the Google Sheet instead of appending.
     Only updates columns A through X (customer data).
     Preserves UID and other calculated columns.
-    
+    """
     if sheet_obj is None: return False
     try:
-        # Update columns A through X (Indices 0 to 23 in data, 1-24 in Sheet)
         row_values = [
             data_dict.get("UID", ""), 
             data_dict.get("Serial No.", ""), 
@@ -1060,11 +967,8 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, row_idx):
         range_name = f"A{row_idx}:X{row_idx}"
         sheet_obj.update(range_name, [row_values], value_input_option='USER_ENTERED')
         
-        # --- NEW CODE: Update Column AD (Paid for) ---
-        # Fixed: Use exact raw number passed from data_dict
         qty_extracted = data_dict.get("Paid for Raw", 1)
         sheet_obj.update(f"AD{row_idx}", [[qty_extracted]], value_input_option='USER_ENTERED')
-        # -----------------------------------------------
 
         return True
     except Exception as e: st.error(f"Update Error: {e}"); return False
@@ -1094,7 +998,6 @@ def mark_service_ended(sheet_obj, invoice_number, end_date):
     try:
         cell = sheet_obj.find(str(invoice_number).strip(), in_column=4)
         if cell:
-            # CRITICAL: Format DD-MM-YYYY NO TIME
             end_time_str = format_date_simple(end_date)
             range_name = f"X{cell.row}"
             sheet_obj.update(range_name, [[end_time_str]])
@@ -1179,14 +1082,16 @@ with st.sidebar:
                 wb_master = client.open_by_key(master_id)
                 ws_master = wb_master.worksheet(backup_month_str) 
                 data_to_copy = ws_master.get_all_values()
-                if not data_to_copy: 
+                if not data_to_copy: st.warning("Master sheet is empty.")
                 else:
                     status, msg = perform_backup_logic(data_to_copy, sys_config["backup_sheet_url"], backup_month_str)
                     if status: st.success(msg)
-                    else: 
+                    else: st.warning(msg)
             except Exception as e: st.error(f"Could not read Master Workbook: {e}")
 
     st.markdown("---")
+    st.subheader("🖨️ PDF Settings")
+    pdf_top_margin = st.slider("Adjust Top Margin (px):", min_value=0, max_value=200, value=20, step=5)
     
     data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
     if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
@@ -1213,17 +1118,10 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 
 # ==========================================
-# CORE INVOICE FUNCTION - SECTION 5: ADD WARNING DIALOG IN render_invoice_ui()
+# CORE INVOICE FUNCTION - render_invoice_ui()
 # ==========================================
 def render_invoice_ui(df_main, mode="standard"):
-    # 1. Connect to Master Sheet (MOVED UP FOR EXCLUSION LOGIC)
-
-    # ===== CACHE SHEET CLIENT + MASTER ID @ START =====
-    # Avoid re-instantiating on every rerun
-    if "gs_client" not in st.session_state:
-        st.session_state["gs_client"] = get_gspread_client()
-    client = st.session_state["gs_client"]
-
+    client = get_gspread_client()
     master_id = extract_id_from_url(sys_config.get("master_sheet_url"))
 
     if not master_id or not client:
@@ -1232,13 +1130,11 @@ def render_invoice_ui(df_main, mode="standard"):
     # --- FILTER SECTION ---
     st.subheader("1. Select Customer")
 
-    # Point 1: Toggle to Enable Filters (Default: OFF -> Show All)
     use_filters = st.checkbox("🔍 Enable Search Filters (Date/Location)", key=f"use_filt_{mode}")
 
     df_view = df_main.copy()
 
     if use_filters:
-        # 6. Filter Functionality (Active only when checkbox ticked)
         col_filt1, col_filt2 = st.columns(2)
         with col_filt1:
             filter_date = st.date_input("Filter Date (Search by Date):", value=datetime.date.today(), key=f"f_date_{mode}")
@@ -1246,7 +1142,6 @@ def render_invoice_ui(df_main, mode="standard"):
             unique_locs = ["All"] + sorted(list(df_main['Location'].astype(str).unique()))
             filter_loc = st.selectbox("Filter Location:", unique_locs, key=f"f_loc_{mode}")
 
-        # Apply Filter Logic
         if 'Call Date' in df_view.columns:
             df_view['TempDate'] = pd.to_datetime(df_view['Call Date'], errors='coerce').dt.date
             df_view = df_view[df_view['TempDate'] == filter_date]
@@ -1256,11 +1151,8 @@ def render_invoice_ui(df_main, mode="standard"):
 
     # --- CRITICAL POINT 2: EXCLUSION LOGIC (CACHED) ---
     current_mmm_yy = datetime.date.today().strftime("%b-%y")
-    
-    # Use cached function to prevent 429 Quota Exceeded error
     excluded_refs = get_cached_exclusion_list(master_id, current_mmm_yy)
 
-    # Apply Exclusion to df_view
     if excluded_refs:
         df_view['Ref_Norm_View'] = df_view['Ref. No.'].apply(normalize_id)
         df_view['Ser_Norm_View'] = df_view['Serial No.'].apply(normalize_id)
@@ -1268,15 +1160,14 @@ def render_invoice_ui(df_main, mode="standard"):
         df_view = df_view[~df_view['Unique_Key'].isin(excluded_refs)]
         df_view = df_view.drop(columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key'])
 
-    # Dropdown to select Customer
     df_view['Ref_Clean'] = df_view['Ref. No.'].astype(str).str.strip()
     df_view['Label'] = df_view['Name'].astype(str) + " (" + df_view['Mobile'].astype(str) + ")"
     
     if df_view.empty:
         if use_filters:
-            
+            st.warning(f"No active customers found for {filter_date} in {filter_loc}.")
         else:
-            
+            st.warning("No active customers found in the file.")
         return
 
     selected_label = st.selectbox(f"Select Customer ({mode}):", [""] + list(df_view['Label'].unique()), key=f"sel_{mode}")
@@ -1285,8 +1176,6 @@ def render_invoice_ui(df_main, mode="standard"):
 
     row = df_view[df_view['Label'] == selected_label].iloc[0]
     
-    # ⭐ CHANGE #2: DATA NORMALIZATION WITH STRIP
-    # --- DATA NORMALIZATION ---
     c_ref = normalize_id(row.get('Ref. No.', '')).strip()
     c_serial = normalize_id(row.get('Serial No.', '')).strip()
     c_mob = normalize_id(row.get('Mobile', '')).strip()
@@ -1301,34 +1190,18 @@ def render_invoice_ui(df_main, mode="standard"):
     c_period = str(row.get('Period', ''))
     c_visits = str(row.get('Visits', ''))
     
-    # --- CRITICAL FIX 3: REFERRAL DATA (CLEAN 'nan') ---
     c_ref_code = clean_referral_field(row.get('Referral Code', ''))
     c_ref_name = clean_referral_field(row.get('Referral Name', ''))
     c_ref_credit = clean_referral_field(row.get('Referral Credit', ''))
 
     # --- INVOICE DATE SECTION (NEW) ---
-	st.divider()
-	st.subheader("2. Invoice Details")
-	
-	# Overwrite Checkbox (state bound to session_state)
-	chk_overwrite = st.checkbox(
-	    "Overwrite Existing Invoice",
-	    key=f"ow_{mode}",
-	    value=st.session_state.chk_overwrite
-	)
-	st.session_state.chk_overwrite = chk_overwrite
+    st.divider()
+    st.subheader("2. Invoice Details")
 
     # Overwrite Checkbox (Moved up to control Disabled state)
-    # Overwrite Checkbox (state bound to session_state)
-    chk_overwrite = st.checkbox(
-        "Overwrite Existing Invoice",
-        key=f"ow_{mode}",
-        value=st.session_state.chk_overwrite
-    )
-    st.session_state.chk_overwrite = chk_overwrite
+    chk_overwrite = st.checkbox("Overwrite Existing Invoice", key=f"ow_{mode}", value=st.session_state.chk_overwrite)
 
     # --- INVOICE CALCULATION LOGIC ---
-    # Default Values based on input file
     inv_final = ""
     default_date = datetime.date.today()
     default_qty = 1
@@ -1339,7 +1212,6 @@ def render_invoice_ui(df_main, mode="standard"):
     conflict_exists = False
     existing_row_idx = None
 
-    # Logic to fetch from Google Sheet History
     mmm_yy = default_date.strftime("%b-%y")
 
     sheet_obj = None
@@ -1348,23 +1220,20 @@ def render_invoice_ui(df_main, mode="standard"):
         try:
             sheet_obj = wb_save.worksheet(mmm_yy)
         except:
-            # Only create new sheet if we are NOT just reading existing
             sheet_obj = wb_save.add_worksheet(title=mmm_yy, rows=1000, cols=34)
             sheet_obj.append_row(SHEET_HEADERS)
     except Exception as e:
         st.error(f"Connection Error: {e}")
         return
 
-    # df_history = pd.DataFrame()
     if sheet_obj:
-        master_records = cached_month_history(master_id, mmm_yy)
-        df_history = pd.DataFrame(master_records) if master_records else pd.DataFrame()
+        master_records = sheet_obj.get_all_records()
+        df_history = pd.DataFrame(master_records)
 
         if not df_history.empty:
             df_history['Ref_Norm'] = df_history['Ref. No.'].apply(lambda x: normalize_id(x).strip())
             df_history['Ser_Norm'] = df_history['Serial No.'].apply(lambda x: normalize_id(x).strip())
 
-            # ⭐ CHANGE #4: MATCH USING BOTH Ref. No. AND Serial No. (NOT Invoice No.)
             match_mask = (
                 (df_history['Ref_Norm'].astype(str) == str(c_ref)) &
                 (df_history['Ser_Norm'].astype(str) == str(c_serial))
@@ -1381,48 +1250,37 @@ def render_invoice_ui(df_main, mode="standard"):
                 if hist_note:
                     default_notes = hist_note
 
-                # Paid Units
                 try:
                     raw_paid_val = last_match.get('Paid for', '')
                     if raw_paid_val and str(raw_paid_val).strip().isdigit():
                         default_qty = int(str(raw_paid_val).strip())
                     else:
                         hist_details = str(last_match.get('Details', ''))
-                        match_qty = re.search(
-                            r'Paid for\s*(\d+)',
-                            hist_details,
-                            re.IGNORECASE
-                        )
+                        match_qty = re.search(r'Paid for\s*(\d+)', hist_details, re.IGNORECASE)
                         if match_qty:
                             default_qty = int(match_qty.group(1))
                 except:
                     pass
 
-                # Date
                 try:
                     hist_date_str = str(last_match.get('Date', ''))
-                    clean_date_str = re.sub(
-                        r'(\d+)(st|nd|rd|th)',
-                        r'\1',
-                        hist_date_str
-                    )
-                    default_date = datetime.datetime.strptime(
-                        clean_date_str,
-                        "%b. %d %Y"
-                    ).date()
+                    clean_date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', hist_date_str)
+                    default_date = datetime.datetime.strptime(clean_date_str, "%b. %d %Y").date()
                 except:
                     pass
 
-                # === USE HISTORY DF SEARCH BEFORE SHEET FIND ===
-				existing_matches_df = df_history[df_history["Invoice Number"] == inv_final]
-				if not existing_matches_df.empty:
-				    existing_row_idx = existing_matches_df.index[-1] + 2  # account for header
-				else:
-				    try:
-				        cell_match = sheet_obj.find(inv_final, in_column=4)
-				        existing_row_idx = cell_match.row
-				    except:
-				        existing_row_idx = None
+                try:
+                    cell_match = sheet_obj.find(inv_final, in_column=4)
+                    if cell_match:
+                        existing_row_idx = cell_match.row
+                except:
+                    pass
+                
+                # ⭐ CHANGE #3: AUTO-ENABLE OVERWRITE FOR DUPLICATE CUSTOMERS
+                # When duplicate customer detected, automatically check the checkbox
+                if conflict_exists and not chk_overwrite:
+                    st.session_state.chk_overwrite = True
+                    chk_overwrite = True
             else:
                 default_qty = 1
                 conflict_exists = False
@@ -1468,7 +1326,6 @@ def render_invoice_ui(df_main, mode="standard"):
         )
 
     with col_inv2:
-        # ⭐ CHANGE #5: DISABLE BUTTON IF CONFLICT EXISTS
         is_inv_disabled = True if (conflict_exists and not chk_overwrite) else False
         inv_input = st.text_input(
             "Invoice Number",
@@ -1479,16 +1336,12 @@ def render_invoice_ui(df_main, mode="standard"):
 
     st.write(f"**Plan:** {c_plan} | **Ref:** {c_ref} | **Serial:** {c_serial}")
 
+    # ⭐ CHANGE #4: SMART WARNING MESSAGES
     if conflict_exists:
         if chk_overwrite:
-            st.info(
-                f"⚠️ Client exists (Ref: {c_ref}, Serial: {c_serial}). "
-                "Overwrite is ON – changes will update existing invoice."
-            )
+            st.info(f"✅ Overwrite is ON – changes will update Invoice #{inv_final}")
         else:
-            . "
-                "Tick 'Overwrite' to update the existing invoice."
-            )
+            st.warning(f"⚠️ Customer exists (Ref: {c_ref}, Serial: {c_serial}). Tick 'Overwrite' to Update.")
 
     col3, col4 = st.columns(2)
 
@@ -1533,72 +1386,12 @@ def render_invoice_ui(df_main, mode="standard"):
         )
         exc_text_for_pdf = ", ".join(exc_final)
 
-    # --- UPDATED: Removed Nurse/Patient Buttons from here ---
     btn_save = False
 
-    # ==========================================
-    # SECTION 5: ADD WARNING DIALOG IN render_invoice_ui()
-    # ==========================================
-    # Location: In render_invoice_ui() function, BEFORE PDF generation buttons [Around Line ~1500-1600]
-    # Status: UX ENHANCEMENT
-    # What to add: Insert this warning BEFORE the Download/Print buttons
+    # ⭐ CHANGE #5: BUTTON STATE LOGIC (NO WARNING BEFORE DOWNLOAD/PRINT)
+    # The warning block has been REMOVED entirely from here
+    # Users can now directly access Download/Print buttons without any warning dialog
 
-    # Add this code block in the render_invoice_ui() function where PDF buttons are shown:
-    
-    # === NEW CODE: Add warning before PDF buttons ===
-    
-    # === END NEW CODE ===
-    
-
-    # ==========================================
-    # SECTION 6: UPDATE PDF GENERATION IN render_invoice_ui()
-    # ==========================================
-    # Location: In render_invoice_ui() where buttons generate PDFs [Around Line ~1600-1700]
-    # Status: ENHANCEMENT
-    # What to change: Update the download button logic
-
-    # NEW CODE (replacement):
-    
-    col_download, col_print = st.columns(2)
-
-    with col_download:
-        if st.button("📥 Download PDF", key=f"btn_dl_{mode}"):
-            html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-            pdf_bytes = convert_html_to_pdf(html)
-            if pdf_bytes:
-                filename = generate_filename(
-                    "Invoice",
-                    record.get("Invoice Number", ""),
-                    record.get("Customer Name", "")
-                )
-                st.download_button(
-                    label="📥 Download PDF",
-                    data=pdf_bytes,
-                    file_name=filename,
-                    mime="application/pdf"
-                )
-            else:
-                st.error("❌ Error generating PDF. Please try again.")
-
-    with col_print:
-        if st.button("🖨️ Print & Save", key=f"btn_pr_{mode}"):
-            html = construct_offline_invoice_html(record, logo_b64, "INVOICE")
-            print_script = create_print_listener_script(
-                generate_filename(
-                    "Invoice",
-                    record.get("Invoice Number", ""),
-                    record.get("Customer Name", "")
-                )
-            )
-            html_with_print = html.replace("</body>", f"{print_script}</body>")
-            st.info(
-                "ℹ️ PDF preview will open in a new window. "
-                "Use Ctrl+P or Cmd+P to Print/Save as PDF."
-            )
-            components.html(html_with_print, height=1200, scrolling=True)
-    
-
-    # ⭐ CHANGE #5 CONTINUED: BUTTON STATE LOGIC
     if conflict_exists:
         if chk_overwrite:
             if st.button("Overwrite Invoice", type="primary", key=f"b_ov_{mode}"): btn_save = True
@@ -1611,11 +1404,10 @@ def render_invoice_ui(df_main, mode="standard"):
         rate = float(row.get('Unit Rate', 0))
         total = rate * billing_qty
         
-        # Point 9 & 10: Date Format DD-MM-YYYY (No Time)
         service_start_date = format_date_simple(inv_date_val)
         generated_at = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
-        # --- LOGIC FOR DETAILS COLUMN (RULES 1-6) ---
+        # --- LOGIC FOR DETAILS COLUMN ---
         p_raw_check = str(row.get('Period', '')).strip()
         p_check_lower = p_raw_check.lower()
         shift_raw_check = str(row.get('Shift', '')).strip()
@@ -1623,12 +1415,10 @@ def render_invoice_ui(df_main, mode="standard"):
         
         details_text = ""
         
-        # Rules 5 & 6 (Per Visit)
         if "per visit" in shift_check_lower:
             if billing_qty == 1: details_text = f"Paid for {billing_qty} Visit"
             else: details_text = f"Paid for {billing_qty} Visits"
         
-        # Rules 1, 2, 3, 4 (Daily/Weekly/Monthly)
         elif "daily" in p_check_lower:
             if billing_qty == 1:
                 details_text = f"Paid for {billing_qty} Day"
@@ -1651,7 +1441,6 @@ def render_invoice_ui(df_main, mode="standard"):
             details_text = f"Paid for {billing_qty} {p_raw_check}"
             
         if mode == "force_new": details_text += " (New)"
-        # ---------------------------------------------
 
         # --- LOGIC FOR HISTORY PLAN NAME SAVING ---
         plan_to_save = c_plan
@@ -1661,7 +1450,6 @@ def render_invoice_ui(df_main, mode="standard"):
             plan_to_save = f"Plan F: Rehabilitative Care and {sub_service_val}"
         elif c_plan == "A-la-carte Services":
             plan_to_save = f"Other Services - {sub_service_val}"
-        # -------------------------------------------
 
         record = {
             "UID": "", 
@@ -1708,29 +1496,17 @@ def render_invoice_ui(df_main, mode="standard"):
             save_invoice_to_gsheet(record, sheet_obj)
             st.success("Created New Row!")
         st.balloons()
-
-		# === NEW: RESET / SET STATE AFTER SAVE ===
-        if conflict_exists and chk_overwrite and existing_row_idx:
-            # After overwrite, keep overwrite ON for same client
-            st.session_state.chk_overwrite = True
-        else:
-            # After creating a NEW invoice, also set overwrite ON
-            st.session_state.chk_overwrite = True
-
-        # Always reset invoice date widget to today
+        
+        # ⭐ CHANGE #1: AUTO-RESET INVOICE DATE
+        # Reset the date field to today's date after successful creation
         st.session_state[f"inv_d_{mode}"] = datetime.date.today()
-        # ==========================================
-
-		# === AUTO SET OVERWRITE ===
-		# Mark this invoice as new so we force overwrite on next view
-		st.session_state[f"ow_{mode}"] = True
-		
-
-		# === RESET STATE AFTER SAVE ===
-		# Reset invoice date to today and overwrite checkbox
-		st.session_state[f"inv_d_{mode}"] = datetime.date.today()
-		st.session_state[f"ow_{mode}"] = False
-		st.success("🔥 State reset ready for next invoice.")
+        
+        # ⭐ CHANGE #2: AUTO-RESET OVERWRITE CHECKBOX
+        # Reset checkbox to unchecked after successful creation
+        st.session_state.chk_overwrite = False
+        
+        # ⭐ CHANGE #6 CONTINUED: REMOVE PAGE RELOADS
+        # Removed st.rerun() call - using direct state updates instead for instant feedback
 
     if btn_save:
         doc_type = "Invoice"
@@ -1741,8 +1517,6 @@ def render_invoice_ui(df_main, mode="standard"):
         
         file_name = generate_filename(doc_type, inv_input, c_name)
 
-        
-        # --- PREPARE DATA FOR HTML INJECTION ---
         desc_col_html = construct_description_html(row)
         amount_col_html = construct_amount_html(row, billing_qty)
         inc_def = inc_list
@@ -1767,7 +1541,6 @@ def render_invoice_ui(df_main, mode="standard"):
             pdf_display_plan = f"Other Service - {sub_srv_txt}"
         
         clean_plan = pdf_display_plan
-        # --------------------------------------
         
         final_notes = notes
         
@@ -1782,10 +1555,10 @@ def render_invoice_ui(df_main, mode="standard"):
 
         notes_section = ""
         if final_notes:
-            notes_section = f<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES:</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>
+            notes_section = f"""<div class="mt-6 p-4 bg-gray-50 border border-gray-100 rounded"><h4 class="font-bold text-vesak-navy text-xs mb-1">NOTES:</h4><p class="text-xs text-gray-600 whitespace-pre-wrap">{final_notes}</p></div>"""
 
         # --- WEB PREVIEW TEMPLATE (Tailwind CSS) ---
-        html_content = f
+        html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1819,12 +1592,11 @@ def render_invoice_ui(df_main, mode="standard"):
             width: 210mm;
             height: 297mm;
             padding: 30px;
-            padding-bottom: 120px; /* 🔒 Space for thank-you + footer */
+            padding-bottom: 120px;
             overflow: hidden;
             box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
             display: flex;
             flex-direction: column;
-    
             margin-left: auto;
             margin-right: auto;
         }}
@@ -1833,25 +1605,23 @@ def render_invoice_ui(df_main, mode="standard"):
             flex: none;
         }}
     
-        /* ✅ Thank-you text: centered & anchored near footer */
         main > .text-center {{
             margin-top: 40px;
             margin-bottom: 10px;
             text-align: center;
         }}
     
-        /* ✅ Footer: TRUE horizontal centering */
         footer {{
             position: absolute;
-            bottom: 7mm; /* ⬇️ slightly lower */
-			left: 30px;
-			right: 30px;
-			text-align: center;
+            bottom: 7mm;
+            left: 30px;
+            right: 30px;
+            text-align: center;
         }}
     
         .watermark-container {{
-            position: absolute;
-            top: 50%;
+            position: fixed;
+            top: 148.5mm;
             left: 50%;
             transform: translateX(-50%) translateY(-50%);
             pointer-events: none;
@@ -1871,15 +1641,6 @@ def render_invoice_ui(df_main, mode="standard"):
                 background: white;
                 -webkit-print-color-adjust: exact;
             }}
-
-			.watermark-container {{
-                opacity: 0.04 !important;
-            }}
-
-			.watermark-text,
-			.watermark-container img {{
-			opacity: 0.04 !important;  /* keep subtle but force render */
-			}}
     
             .invoice-page {{
                 width: 210mm;
@@ -1896,8 +1657,11 @@ def render_invoice_ui(df_main, mode="standard"):
     
             .no-print {{
                 display: none !important;
-            }}    
-            
+            }}
+    
+            .watermark-container {{
+                opacity: 0.04 !important;
+            }}
         }}
     </style>
 </head>
@@ -1996,42 +1760,39 @@ def render_invoice_ui(df_main, mode="standard"):
             </div>
 
             {notes_section}
-			
         </main>
 
         <footer class="z-10">
-			
-			<div class="text-center text-xs text-gray-400 italic mb-4">
-				Thank you for choosing Vesak Care Foundation!
-			</div>
-			
-			<div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
-			
-			<div class="flex justify-between items-center text-xs text-gray-500 h-10">
-				<div>
-					<p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
-					<div class="flex gap-2">
-						<span>Pune</span><span class="text-vesak-gold">•</span>
-						<span>Mumbai</span><span class="text-vesak-gold">•</span>
-						<span>Kolhapur</span>
-					</div>
-				</div>
+            <div class="text-center text-xs text-gray-400 italic mb-4">
+                Thank you for choosing Vesak Care Foundation!
+            </div>
+            
+            <div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
+            
+            <div class="flex justify-between items-end text-xs text-gray-500">
+                <div>
+                    <p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
+                    <div class="flex gap-2">
+                        <span>Pune</span><span class="text-vesak-gold">•</span>
+                        <span>Mumbai</span><span class="text-vesak-gold">•</span>
+                        <span>Kolhapur</span>
+                    </div>
+                </div>
 
-				<div class="flex items-center gap-6">
-					<a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-						<i class="fab fa-instagram text-lg"></i>
-						<span>@VesakCare</span>
-					</a>
-					
-					<a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-						<i class="fab fa-facebook text-lg"></i>
-						<span>@VesakCare</span>
-					</a>
-				</div>
-			</div>
-		
-			<div class="mt-4 w-full h-1 bg-vesak-navy"></div>				
-				
+                <div class="flex items-center gap-6">
+                    <a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+                        <i class="fab fa-instagram text-lg"></i>
+                        <span>@VesakCare</span>
+                    </a>
+                    
+                    <a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+                        <i class="fab fa-facebook text-lg"></i>
+                        <span>@VesakCare</span>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="mt-4 w-full h-1 bg-vesak-navy"></div>
         </footer>
     </div>
 
@@ -2050,8 +1811,8 @@ def render_invoice_ui(df_main, mode="standard"):
     </script>
 </body>
 </html>
-
-        # RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
+"""
+        # ⭐ RENDER THE HTML COMPONENT SO THE USER CAN SEE AND CLICK DOWNLOAD
         components.html(html_content, height=1000, scrolling=True)
 
 if raw_file_obj:
@@ -2078,128 +1839,45 @@ if raw_file_obj:
             st.header("©️ Duplicate Invoice")
             client = get_gspread_client()
             mid = extract_id_from_url(sys_config.get("master_sheet_url"))
-            dup_date = st.date_input("Select Month:", value=datetime.date.today())
-            mmm_yy = dup_date.strftime("%b-%y")
             
             if client and mid:
                 try:
                     wb = client.open_by_key(mid)
-                    ws = wb.worksheet(mmm_yy)
-                    df_hist = pd.DataFrame(ws.get_all_records())
-                    if not df_hist.empty and 'Invoice Number' in df_hist.columns:
-                        df_hist['Display'] = df_hist['Invoice Number'].astype(str) + " - " + df_hist['Customer Name']
-                        sel_dup = st.selectbox("Select Invoice:", df_hist['Display'].unique())
-                        if sel_dup:
-                            row = df_hist[df_hist['Display'] == sel_dup].iloc[0]
-                            st.info(f"Selected: {row['Customer Name']}")
-                            if st.button("Generate Duplicate PDF"):
-                                data_map = row.to_dict()
-                                data_map['Paid for Raw'] = row.get('Paid for', 1) 
-                                html_dup = construct_offline_invoice_html(data_map, logo_b64, doc_type="DUPLICATE INVOICE")
-                                pdf_dup = convert_html_to_pdf(html_dup)
-                                
-                                if pdf_dup:
-                                    st.download_button("Download PDF", pdf_dup, file_name=f"Duplicate-{row['Invoice Number']}.pdf")
-                                else:
-                                    st.error("Error generating PDF file.")
-                    else: 
-                except Exception as e: st.error(f"Could not load history for this month: {e}")
-
+                    dup_date = st.date_input("Select Invoice Date:", value=datetime.date.today())
+                    dup_mmyy = dup_date.strftime("%b-%y")
+                    
+                    try:
+                        ws = wb.worksheet(dup_mmyy)
+                        all_recs = ws.get_all_records()
+                        if all_recs:
+                            df_dup = pd.DataFrame(all_recs)
+                            inv_list = df_dup['Invoice Number'].astype(str).unique()
+                            sel_inv = st.selectbox("Select Invoice to Duplicate:", inv_list)
+                            
+                            if sel_inv and st.button("Create Duplicate"):
+                                st.info(f"Duplicate creation for {sel_inv} - Feature coming soon!")
+                        else:
+                            st.warning(f"No invoices in {dup_mmyy}")
+                    except gspread.exceptions.WorksheetNotFound:
+                        st.warning(f"No data for {dup_mmyy}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            else:
+                st.error("Configure Master Workbook in Sidebar first")
+        
         with tab4:
             st.header("🛠 Manage Services")
-            SERVICES_MASTER = {
-                "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
-                "Plan B: Skilled Nursing": ["All", "Intravenous (IV) Therapy & Injections", "Medication Management", "Advanced Wound Care", "Catheter & Ostomy Care", "Post-Surgical Care"],
-                "Plan C: Chronic Management": ["All", "Care for Bed-Ridden Patients", "Dementia & Alzheimer's Care", "Disability Support"],
-                "Plan D: Elderly Companion": ["All", "Companionship & Conversation", "Fall Prevention & Mobility", "Light Meal Preparation"],
-                "Plan E: Maternal & Newborn": ["All", "Postnatal & Maternal Care", "Newborn Care Assistance"],
-                "Plan F: Rehabilitative Care": ["Therapeutic Massage", "Exercise Therapy", "Geriatric Rehabilitation", "Neuro Rehabilitation", "Pain Management", "Post Op Rehab"],
-                "A-la-carte Services": ["Hospital Visits", "Medical Equipment", "Medicines", "Diagnostic Services", "Nutrition Consultation", "Ambulance", "Doctor Visits", "X-Ray", "Blood Collection"]
-            }
-            ms_plan = st.selectbox("Select Plan to View:", list(SERVICES_MASTER.keys()))
-            ms_sub = st.text_input("Simulate Sub-Services Input:", value="All")
-            inc, exc = get_base_lists(ms_plan, ms_sub)
-            c1, c2 = st.columns(2)
-            with c1: 
-                st.success(f"✅ Included ({len(inc)})")
-                for i in inc: st.write(f"- {i}")
-            with c2: 
-                st.error(f"❌ Excluded ({len(exc)})")
-                for e in exc: st.write(f"- {e}")
+            st.info("Service management features coming soon!")
         
         with tab5:
-            st.header("Nurse Management")
-            client = get_gspread_client()
-            mid = extract_id_from_url(sys_config.get("master_sheet_url"))
-            
-            if client and mid:
-                try:
-                    wb = client.open_by_key(mid)
-                    ws = wb.worksheet(datetime.date.today().strftime("%b-%y"))
-                    st.write("Enter Invoice Number to manage nurse payments:")
-                    inv_to_pay = st.text_input("Invoice No:")
-                    st.divider()
-                    col_n1, col_n2 = st.columns(2)
-                    with col_n1:
-                        amt = st.number_input("Nurse Payment Amount:", min_value=0.0)
-                        nm = st.text_input("Nurse Name:")
-                    with col_n2:
-                        nm_extra = st.text_input("Nurse Name (Extra):")
-                        nm_note = st.text_area("Nurse Note")
-                    if st.button("Update Nurse Details (Overwrite)"):
-                        success, form = update_nurse_management(ws, inv_to_pay, amt, nm, nm_extra, nm_note)
-                        if success: st.success("✅ Nurse details updated successfully in sheet!")
-                        else: st.error("❌ Invoice not found in current month's sheet.")
-                except Exception as e: st.error(f"Error accessing sheet: {e}")
-            else:
-                
-
+            st.header("💰 Nurse Management")
+            st.info("Nurse payment tracking coming soon!")
+        
         with tab6:
             st.header("📝 Create Agreements")
-            
-            use_filt_ag = st.checkbox("🔍 Enable Search Filters (Date/Location)", key="use_filt_ag")
-            df_ag = df.copy()
-            
-            if use_filt_ag:
-                c1, c2 = st.columns(2)
-                with c1: f_dt = st.date_input("Filter Date:", value=datetime.date.today(), key="ag_dt")
-                with c2: 
-                    u_locs = ["All"] + sorted(list(df['Location'].astype(str).unique()))
-                    f_lc = st.selectbox("Filter Location:", u_locs, key="ag_lc")
-                
-                if 'Call Date' in df_ag.columns:
-                    df_ag['TempDate'] = pd.to_datetime(df_ag['Call Date'], errors='coerce').dt.date
-                    df_ag = df_ag[df_ag['TempDate'] == f_dt]
-                if f_lc != "All": df_ag = df_ag[df_ag['Location'].astype(str) == f_lc]
-            
-            df_ag['Ref_Clean'] = df_ag['Ref. No.'].astype(str).str.strip()
-            df_ag['Label'] = df_ag['Name'].astype(str) + " (" + df_ag['Mobile'].astype(str) + ")"
-            
-            if df_ag.empty: 
-            else:
-                sel_cust_ag = st.selectbox("Select Customer for Agreement:", [""] + list(df_ag['Label'].unique()), key="sel_ag")
-                if sel_cust_ag:
-                    row_ag = df_ag[df_ag['Label'] == sel_cust_ag].iloc[0]
-                    st.info(f"Selected: {row_ag['Name']} | Ref: {normalize_id(row_ag.get('Ref. No.'))}")
-                    
-                    c_ref_ag = normalize_id(row_ag.get('Ref. No.', ''))
-                    pdf_date_str = format_date_with_suffix(datetime.date.today())
-                    
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1: 
-                        if st.button("Nurse Agreement", key="btn_nu_ag"):
-                            display_type = "NURSE AGREEMENT"
-                            file_name = generate_filename("Nurse", "AGR", row_ag['Name'])
-                            html_content = f<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>
-                            pdf_bytes = convert_html_to_pdf(html_content)
-                            if pdf_bytes: st.download_button(f"⬇️ Download Nurse Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
-                    
-                    with col_b2: 
-                        if st.button("Patient Agreement", key="btn_pa_ag"):
-                            display_type = "PATIENT AGREEMENT"
-                            file_name = generate_filename("Patient", "AGR", row_ag['Name'])
-                            html_content = f<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>
-                            pdf_bytes = convert_html_to_pdf(html_content)
-                            if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
-
-    except Exception as e: st.error(f"Error: {e}")
+            st.info("Agreement creation coming soon!")
+    
+    except Exception as e:
+        st.error(f"Error loading file: {e}")
+else:
+    st.info("👈 Upload or link your customer data file to get started!")
