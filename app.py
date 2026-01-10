@@ -155,13 +155,13 @@ def clean_text(text): return str(text).strip() if isinstance(text, str) else str
 # ===== CRITICAL FIX 1: ID NORMALIZATION (NO DECIMALS) =====
 # ⭐ CHANGE #1: ENHANCED normalize_id() FUNCTION
 def normalize_id(val):
-    
+    """
     Robust normalization:
     1. Handles "1.0" (float string) -> float 1.0 -> int 1 -> string "1"
     2. Handles 1.0 (float) -> int 1 -> string "1"
     3. Handles "1" (string) -> string "1"
     4. Handles NaN/None -> ""
-    
+    """
     if pd.isna(val): return ""
     s_val = str(val).strip()
     if s_val == "" or s_val.lower() == "nan": return ""
@@ -2205,6 +2205,7 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
 
 
 
