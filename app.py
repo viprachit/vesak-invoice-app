@@ -1309,16 +1309,16 @@ def render_invoice_ui(df_main, mode="standard"):
     c_ref_credit = clean_referral_field(row.get('Referral Credit', ''))
 
     # --- INVOICE DATE SECTION (NEW) ---
-	st.divider()
-	st.subheader("2. Invoice Details")
-	
-	# Overwrite Checkbox (state bound to session_state)
-	chk_overwrite = st.checkbox(
-	    "Overwrite Existing Invoice",
-	    key=f"ow_{mode}",
-	    value=st.session_state.chk_overwrite
-	)
-	st.session_state.chk_overwrite = chk_overwrite
+    st.divider()
+    st.subheader("2. Invoice Details")
+    
+    # Overwrite Checkbox (state bound to session_state)
+    chk_overwrite = st.checkbox(
+        "Overwrite Existing Invoice",
+        key=f"ow_{mode}",
+        value=st.session_state.chk_overwrite
+    )
+    st.session_state.chk_overwrite = chk_overwrite
 
     # Overwrite Checkbox (Moved up to control Disabled state)
     # Overwrite Checkbox (state bound to session_state)
@@ -1416,15 +1416,15 @@ def render_invoice_ui(df_main, mode="standard"):
                     pass
 
                 # === USE HISTORY DF SEARCH BEFORE SHEET FIND ===
-				existing_matches_df = df_history[df_history["Invoice Number"] == inv_final]
-				if not existing_matches_df.empty:
-				    existing_row_idx = existing_matches_df.index[-1] + 2  # account for header
-				else:
-				    try:
-				        cell_match = sheet_obj.find(inv_final, in_column=4)
-				        existing_row_idx = cell_match.row
-				    except:
-				        existing_row_idx = None
+                existing_matches_df = df_history[df_history["Invoice Number"] == inv_final]
+                if not existing_matches_df.empty:
+                    existing_row_idx = existing_matches_df.index[-1] + 2  # account for header
+                else:
+                    try:
+                        cell_match = sheet_obj.find(inv_final, in_column=4)
+                        existing_row_idx = cell_match.row
+                    except:
+                        existing_row_idx = None
             else:
                 default_qty = 1
                 conflict_exists = False
@@ -1718,7 +1718,7 @@ def render_invoice_ui(df_main, mode="standard"):
             st.success("Created New Row!")
         st.balloons()
 
-		# === NEW: RESET / SET STATE AFTER SAVE ===
+        # === NEW: RESET / SET STATE AFTER SAVE ===
         if conflict_exists and chk_overwrite and existing_row_idx:
             # After overwrite, keep overwrite ON for same client
             st.session_state.chk_overwrite = True
@@ -1730,16 +1730,16 @@ def render_invoice_ui(df_main, mode="standard"):
         st.session_state[f"inv_d_{mode}"] = datetime.date.today()
         # ==========================================
 
-		# === AUTO SET OVERWRITE ===
-		# Mark this invoice as new so we force overwrite on next view
-		st.session_state[f"ow_{mode}"] = True
-		st.warning("⚠️ Client Exists. 'Overwrite' to update this client.")
+        # === AUTO SET OVERWRITE ===
+        # Mark this invoice as new so we force overwrite on next view
+        st.session_state[f"ow_{mode}"] = True
+        st.warning("⚠️ Client Exists. 'Overwrite' to update this client.")
 
-		# === RESET STATE AFTER SAVE ===
-		# Reset invoice date to today and overwrite checkbox
-		st.session_state[f"inv_d_{mode}"] = datetime.date.today()
-		st.session_state[f"ow_{mode}"] = False
-		st.success("🔥 State reset ready for next invoice.")
+        # === RESET STATE AFTER SAVE ===
+        # Reset invoice date to today and overwrite checkbox
+        st.session_state[f"inv_d_{mode}"] = datetime.date.today()
+        st.session_state[f"ow_{mode}"] = False
+        st.success("🔥 State reset ready for next invoice.")
 
     if btn_save:
         doc_type = "Invoice"
@@ -1853,9 +1853,9 @@ def render_invoice_ui(df_main, mode="standard"):
         footer {{
             position: absolute;
             bottom: 7mm; /* ⬇️ slightly lower */
-			left: 30px;
-			right: 30px;
-			text-align: center;
+            left: 30px;
+            right: 30px;
+            text-align: center;
         }}
     
         .watermark-container {{
@@ -1881,14 +1881,14 @@ def render_invoice_ui(df_main, mode="standard"):
                 -webkit-print-color-adjust: exact;
             }}
 
-			.watermark-container {{
+            .watermark-container {{
                 opacity: 0.04 !important;
             }}
 
-			.watermark-text,
-			.watermark-container img {{
-			opacity: 0.04 !important;  /* keep subtle but force render */
-			}}
+            .watermark-text,
+            .watermark-container img {{
+            opacity: 0.04 !important;  /* keep subtle but force render */
+            }}
     
             .invoice-page {{
                 width: 210mm;
@@ -2005,42 +2005,42 @@ def render_invoice_ui(df_main, mode="standard"):
             </div>
 
             {notes_section}
-			
+            
         </main>
 
         <footer class="z-10">
-			
-			<div class="text-center text-xs text-gray-400 italic mb-4">
-				Thank you for choosing Vesak Care Foundation!
-			</div>
-			
-			<div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
-			
-			<div class="flex justify-between items-center text-xs text-gray-500 h-10">
-				<div>
-					<p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
-					<div class="flex gap-2">
-						<span>Pune</span><span class="text-vesak-gold">•</span>
-						<span>Mumbai</span><span class="text-vesak-gold">•</span>
-						<span>Kolhapur</span>
-					</div>
-				</div>
+            
+            <div class="text-center text-xs text-gray-400 italic mb-4">
+                Thank you for choosing Vesak Care Foundation!
+            </div>
+            
+            <div class="w-full h-px bg-gradient-to-r from-gray-100 via-vesak-gold to-gray-100 opacity-50 mb-4"></div>
+            
+            <div class="flex justify-between items-center text-xs text-gray-500 h-10">
+                <div>
+                    <p class="font-serif italic text-vesak-navy mb-1 text-sm">Our Offices</p>
+                    <div class="flex gap-2">
+                        <span>Pune</span><span class="text-vesak-gold">•</span>
+                        <span>Mumbai</span><span class="text-vesak-gold">•</span>
+                        <span>Kolhapur</span>
+                    </div>
+                </div>
 
-				<div class="flex items-center gap-6">
-					<a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-						<i class="fab fa-instagram text-lg"></i>
-						<span>@VesakCare</span>
-					</a>
-					
-					<a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
-						<i class="fab fa-facebook text-lg"></i>
-						<span>@VesakCare</span>
-					</a>
-				</div>
-			</div>
-		
-			<div class="mt-4 w-full h-1 bg-vesak-navy"></div>				
-				
+                <div class="flex items-center gap-6">
+                    <a href="https://www.instagram.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+                        <i class="fab fa-instagram text-lg"></i>
+                        <span>@VesakCare</span>
+                    </a>
+                    
+                    <a href="https://www.facebook.com/VesakCare/" target="_blank" class="flex items-center gap-2 text-gray-500 hover:text-vesak-gold transition-colors">
+                        <i class="fab fa-facebook text-lg"></i>
+                        <span>@VesakCare</span>
+                    </a>
+                </div>
+            </div>
+        
+            <div class="mt-4 w-full h-1 bg-vesak-navy"></div>                
+                
         </footer>
     </div>
 
@@ -2212,18 +2212,3 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
