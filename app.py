@@ -1186,9 +1186,7 @@ with st.sidebar:
                     else: st.warning(msg)
             except Exception as e: st.error(f"Could not read Master Workbook: {e}")
 
-    st.markdown("---")
-    st.subheader("🖨️ PDF Settings")
-    pdf_top_margin = st.slider("Adjust Top Margin (px):", min_value=0, max_value=200, value=20, step=5)
+    
     
     data_source = st.radio("Load Customer Data via:", ["Upload File", "OneDrive Link"])
     if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
@@ -2212,3 +2210,4 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
