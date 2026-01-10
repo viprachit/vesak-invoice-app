@@ -233,7 +233,9 @@ def generate_filename(doc_type, invoice_no, customer_name):
     
     Generates standardized filename format.
     Format: {PREFIX}-{INVOICE_NO}-{CLEAN_NAME}.pdf
+	"""
     Example: IN-2026-001-RAJESH-KUMAR.pdf
+	"""
     
     UPGRADED: Now handles clean invoice_no and ensures consistent naming for both Download and Print
     
@@ -2203,3 +2205,4 @@ if raw_file_obj:
                             if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
 
     except Exception as e: st.error(f"Error: {e}")
+
