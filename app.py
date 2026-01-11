@@ -174,7 +174,7 @@ def normalize_id(val):
 
 # --- CRITICAL FIX 2: CLEAN REFERRAL DATA (NO 'nan') ---
 def clean_referral_field(val):
-	"""   
+    """
     Ensures that empty cells in Excel stay empty in Google Sheets.
     Removes 'nan', 'NaN', 'None', etc.
     """
@@ -188,12 +188,12 @@ def clean_referral_field(val):
 # --- CRITICAL FIX 3: CACHED EXCLUSION LIST (FIXES 429 ERROR) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_exclusion_list(master_id, month_str):
-	"""   
+    """
     Fetches the exclusion list with caching (5 mins) to prevent 429 Quota Errors.
     """
     client = get_gspread_client()
     if not client or not master_id: return []
-	
+    
     excluded_refs = []
     try:
         wb = client.open_by_key(master_id)
@@ -201,30 +201,30 @@ def get_cached_exclusion_list(master_id, month_str):
             sheet_check = wb.worksheet(month_str)
             data_check = sheet_check.get_all_records()
             df_check = pd.DataFrame(data_check)
-			
+            
             if not df_check.empty:
                 df_check['Ref_Norm'] = df_check['Ref. No.'].apply(normalize_id)
                 df_check['Ser_Norm'] = df_check['Serial No.'].apply(normalize_id)
                 
                 # Check for existing invoices (regardless of ended service)
                 # We need all Ref-Serial pairs present in history
-												 
-				
-										
+			 
+	
+		  
                 for _, row in df_check.iterrows():
                     key = f"{row['Ref_Norm']}-{row['Ser_Norm']}"
                     excluded_refs.append(key)
         except gspread.exceptions.WorksheetNotFound: pass
     except Exception as e:
         return []
-		
+        
     return excluded_refs
 
 # ==========================================
 # SECTION 1: FUNCTION 2 - ENHANCED generate_filename()
 # ==========================================
 def generate_filename(doc_type, invoice_no, customer_name):
-	"""   
+    """
     Generates standardized filename format.
     Format: {PREFIX}-{INVOICE_NO}-{CLEAN_NAME}.pdf
     Example: IN-2026-001-RAJESH-KUMAR.pdf
