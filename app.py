@@ -1639,34 +1639,50 @@ if raw_file_obj:
                             # Helper Data Construction
                             desc_col_html = construct_description_html(row)
                             
-                            # Amount logic
+                            # Amount logic & Clean Unit Rate (CRITICAL FIX for "0" Amount)
                             qty = 1
                             try:
-                                # Try extracting from 'Paid for' raw or 'Details'
                                 paid_raw = row.get('Paid for', 1)
                                 if str(paid_raw).isdigit(): qty = int(paid_raw)
                             except: pass
                             
-                            # --- CRITICAL FIX: Clean the Amount from History ---
-                            # Google Sheets might return "15,000" as a string, causing float() to fail.
+                            # --- Fix: Clean the Amount from History (Remove commas/symbols) ---
                             try:
                                 raw_hist_amt = str(row.get('Amount', '0'))
-                                # Remove commas, currency symbols, and spaces
                                 clean_hist_amt = raw_hist_amt.replace(',', '').replace('₹', '').replace('Rs.', '').strip()
-                                # We inject 'Unit Rate' into the row object because construct_amount_html looks for it first
                                 row['Unit Rate'] = float(clean_hist_amt)
                             except:
                                 row['Unit Rate'] = 0.0
-                            # ---------------------------------------------------
+                            # ------------------------------------------------------------------
                             
                             amount_col_html = construct_amount_html(row, qty)
                             
-                            # Lists Reconstruction
-                            inc_list, exc_list = get_base_lists(c_plan, "All") # Defaulting sub-service to All for history view
+                            # --- Logic for Plan Display Name (Your Requested Logic) ---
+                            # Note: In history, 'Sub Service' isn't a separate column, it's merged in 'Plan'.
+                            # We extract it loosely for the logic to work.
+                            sub_srv_txt = ""
+                            if " and " in c_plan: sub_srv_txt = c_plan.split(" and ")[-1]
+                            elif " - " in c_plan: sub_srv_txt = c_plan.split(" - ")[-1]
+                            
+                            pdf_display_plan = c_plan
+                            
+                            # Match against base names to apply formatting
+                            if "Plan A" in c_plan: pdf_display_plan = "Patient Care Service"
+                            elif "Plan B" in c_plan: pdf_display_plan = "Nurse Service"
+                            elif "Plan C" in c_plan: pdf_display_plan = "Chronic and Holistic Healthcare Service"
+                            elif "Plan D" in c_plan: pdf_display_plan = "Elderly and Well-being Care"
+                            elif "Plan E" in c_plan: pdf_display_plan = "Maternal & Newborn - Support for Women during and after Pregnancy"
+                            elif "Plan F" in c_plan: pdf_display_plan = f"Rehabilitative Care for {sub_srv_txt}"
+                            elif "Other" in c_plan or "A-la-carte" in c_plan: pdf_display_plan = f"Other Service - {sub_srv_txt}"
+                            
+                            clean_plan = pdf_display_plan
+                            # ---------------------------------------------------------
+
+                            # Lists Reconstruction 
+                            inc_list, exc_list = get_base_lists(c_plan, "All") 
                             inc_html = "".join([f'<li class="mb-1 text-xs text-gray-700">{item}</li>' for item in inc_list])
                             exc_html = "".join([f'<li class="mb-1 text-[10px] text-gray-500">{item}</li>' for item in exc_list])
                             
-                            clean_plan = c_plan
                             notes = row.get("Notes / Remarks", "")
                             notes_section = ""
                             if notes:
