@@ -705,6 +705,14 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, row_idx):
         range_name = f"A{row_idx}:X{row_idx}"
         sheet_obj.update(range_name, [row_values], value_input_option='USER_ENTERED')
         
+															   
+					   
+												
+												
+												
+		  
+																								  
+
         qty_extracted = data_dict.get("Paid for Raw", 1)
         sheet_obj.update(f"AD{row_idx}", [[qty_extracted]], value_input_option='USER_ENTERED')
 
@@ -873,6 +881,7 @@ def render_invoice_ui(df_main, mode="standard"):
 
     client = get_gspread_client()
     master_id = extract_id_from_url(sys_config.get("master_sheet_url"))
+																										   
 
     if not master_id or not client:
         st.error("❌ Master Workbook not linked in Sidebar Settings."); return
@@ -942,7 +951,10 @@ def render_invoice_ui(df_main, mode="standard"):
     
     c_ref_code = clean_referral_field(row.get('Referral Code', ''))
     c_ref_name = clean_referral_field(row.get('Referral Name', ''))
-    c_ref_credit = clean_referral_field(row.get('Referral Credit', ''))
+	
+	# Process Credit (Handle number formatting from Excel)
+    raw_credit = row.get('Referral Credit', '')
+    c_ref_credit = str(int(float(raw_credit))) if str(raw_credit).replace('.', '', 1).isdigit() else clean_referral_field(raw_credit)
 
     # --- INVOICE DATE SECTION (NEW) ---
     st.divider()
@@ -963,6 +975,7 @@ def render_invoice_ui(df_main, mode="standard"):
     existing_row_idx = None
 
     mmm_yy = default_date.strftime("%b-%y")
+					
 
     sheet_obj = None
     try:
@@ -1010,6 +1023,7 @@ def render_invoice_ui(df_main, mode="standard"):
                 # Paid Units
                 raw_paid_val = last_match.get('Paid for', '')
                 try:
+																 
                     if raw_paid_val and str(raw_paid_val).strip().isdigit():
                         default_qty = int(str(raw_paid_val).strip())
                     else:
@@ -1152,12 +1166,23 @@ def render_invoice_ui(df_main, mode="standard"):
         )
         exc_text_for_pdf = ", ".join(exc_final)
 
-    # ========================================================
+    # ⭐ NEW REFERRAL LOGIC
+    # Logic: Disable if data exists, Enable if empty OR if Overwrite is checked
+    disable_ref = False
+    if c_ref_name and c_ref_code and c_ref_credit: disable_ref = True
+    if chk_overwrite: disable_ref = False
+
+    with st.expander("🎁 Referral Details", expanded=True):
+        cr1, cr2, cr3 = st.columns(3)
+        with cr1: ref_name_input = st.text_input("Referral Name", value=c_ref_name, disabled=disable_ref, key=f"rn_{mode}")
+        with cr2: ref_code_input = st.text_input("Referral Code", value=c_ref_code, disabled=disable_ref, key=f"rc_{mode}")
+        with cr3: ref_credit_input = st.text_input("Referral Credit", value=c_ref_credit, disabled=disable_ref, key=f"rcred_{mode}")
+    
+	# ========================================================
     # ⭐ PREVIEW SECTION - GENERATE HTML LIVE
     # ========================================================
     # This block generates the preview HTML using LIVE data from the inputs above.
     # It runs on every interaction, updating the preview instantly.
-    
     preview_rate = float(row.get('Unit Rate', 0))
     preview_total = preview_rate * billing_qty
     preview_date_str = format_date_with_suffix(inv_date_val)
@@ -1368,14 +1393,10 @@ def render_invoice_ui(df_main, mode="standard"):
 </body>
 </html>
 """
-				   
-				 
     # ========================================================
     # ⭐ BUTTONS MOVED HERE (ABOVE THE PREVIEW)
     # ========================================================
     btn_save = False
-
-					
     
     if conflict_exists:
         if chk_overwrite:
@@ -1427,6 +1448,7 @@ def render_invoice_ui(df_main, mode="standard"):
         elif "weekly" in p_check_lower:
             if billing_qty == 1: details_text = f"Paid for {billing_qty} Week"
             else: details_text = f"Paid for {billing_qty} Weeks"
+																	
             
         else:
             details_text = f"Paid for {billing_qty} {p_raw_check}"
@@ -1436,11 +1458,20 @@ def render_invoice_ui(df_main, mode="standard"):
         # --- LOGIC FOR HISTORY PLAN NAME SAVING ---
         plan_to_save = c_plan
         sub_service_val = str(row.get('Sub Service', '')).strip()
+																													   
+																								  
         
         if c_plan == "Plan F: Rehabilitative Care":
             plan_to_save = f"Plan F: Rehabilitative Care and {sub_service_val}"
         elif c_plan == "A-la-carte Services":
             plan_to_save = f"Other Services - {sub_service_val}"
+																	  
+		# Clean credit for save
+        final_credit_val = ref_credit_input.strip()
+        # If it looks like a float ending in .0, strip it
+        if final_credit_val.replace('.', '', 1).isdigit():
+             try: final_credit_val = str(int(float(final_credit_val)))
+             except: pass				 
 
         record = {
             "UID": "", 
