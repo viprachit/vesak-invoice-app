@@ -42,6 +42,7 @@ SHEET_HEADERS = [
 
 # --- SESSION STATE INITIALIZATION ---
 if 'chk_overwrite' not in st.session_state: st.session_state.chk_overwrite = False
+if 'show_existing_customers' not in st.session_state: st.session_state.show_existing_customers = False																									  
 
 # --- CONFIGURATION LOADER ---
 def load_system_config():
@@ -187,16 +188,16 @@ def get_cached_exclusion_list(master_id, month_str):
             data_check = sheet_check.get_all_records()
             df_check = pd.DataFrame(data_check)
             
-            if not df_check.empty and 'Service Ended' in df_check.columns:
+            if not df_check.empty
                 df_check['Ref_Norm'] = df_check['Ref. No.'].apply(normalize_id)
                 df_check['Ser_Norm'] = df_check['Serial No.'].apply(normalize_id)
                 
-                date_pattern = r'\d{1,2}-\d{1,2}-\d{2,4}'
-                ended_mask = df_check['Service Ended'].astype(str).str.contains(date_pattern, regex=True, na=False)
-                ended_rows = df_check[ended_mask]
-                
-                if not ended_rows.empty:
-                    for _, r_end in ended_rows.iterrows():
+                # Check for existing invoices (regardless of ended service)
+                # We need all Ref-Serial pairs present in history
+												 
+				
+				
+                    for _, row in df_check.iterrows():
                         key = f"{normalize_id(r_end['Ref. No.'])}-{normalize_id(r_end['Serial No.'])}"
                         excluded_refs.append(key)
         except gspread.exceptions.WorksheetNotFound: pass
@@ -705,13 +706,13 @@ def update_invoice_in_gsheet(data_dict, sheet_obj, row_idx):
         range_name = f"A{row_idx}:X{row_idx}"
         sheet_obj.update(range_name, [row_values], value_input_option='USER_ENTERED')
         
-															   
-					   
-												
-												
-												
-		  
-																								  
+		# Update Referral Info in Y, Z, AA (indices 25, 26, 27)
+        ref_values = [[
+            data_dict.get("Referral Name", ""), 
+            data_dict.get("Referral Code", ""), 
+            data_dict.get("Referral Credit", "")
+        ]]
+        sheet_obj.update(f"Y{row_idx}:AA{row_idx}", ref_values, value_input_option='USER_ENTERED')
 
         qty_extracted = data_dict.get("Paid for Raw", 1)
         sheet_obj.update(f"AD{row_idx}", [[qty_extracted]], value_input_option='USER_ENTERED')
@@ -851,9 +852,8 @@ elif data_source == "OneDrive Link":
     if current_url: raw_file_obj = robust_file_downloader(current_url)
 
 # --- MAIN TABS ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, = st.tabs([
     "🧾 Generate Invoice", 
-    "🆕 Force New Invoice", 
     "©️ Duplicate Invoice", 
     "🛠 Manage Services", 
     "💰 Nurse Manage",
@@ -888,11 +888,18 @@ def render_invoice_ui(df_main, mode="standard"):
 
     # --- FILTER SECTION ---
     st.subheader("1. Select Customer")
+	
+	# ⭐ CHANGE: NEW CUSTOMER vs EXISTING CUSTOMER TOGGLE
+    show_existing = st.toggle("📂 Switch List: 🆕 New Customers ⇄ 📂 Existing Customers", value=False)
+    
+    # Auto-set Overwrite checkbox based on toggle
+    st.session_state[f"ow_{mode}"] = show_existing											  
 
     use_filters = st.checkbox("🔍 Enable Search Filters (Date/Location)", key=f"use_filt_{mode}")
 
     df_view = df_main.copy()
 
+	# Filter logic			  
     if use_filters:
         col_filt1, col_filt2 = st.columns(2)
         with col_filt1:
@@ -911,22 +918,32 @@ def render_invoice_ui(df_main, mode="standard"):
     # --- CRITICAL POINT 2: EXCLUSION LOGIC (CACHED) ---
     current_mmm_yy = datetime.date.today().strftime("%b-%y")
     excluded_refs = get_cached_exclusion_list(master_id, current_mmm_yy)
+	
+	# ⭐ CHANGE: Filter list based on Toggle State
+    df_view['Ref_Norm_View'] = df_view['Ref. No.'].apply(normalize_id)
+    df_view['Ser_Norm_View'] = df_view['Serial No.'].apply(normalize_id)
+    df_view['Unique_Key'] = df_view['Ref_Norm_View'] + "-" + df_view['Ser_Norm_View']
 
-    if excluded_refs:
-        df_view['Ref_Norm_View'] = df_view['Ref. No.'].apply(normalize_id)
-        df_view['Ser_Norm_View'] = df_view['Serial No.'].apply(normalize_id)
-        df_view['Unique_Key'] = df_view['Ref_Norm_View'] + "-" + df_view['Ser_Norm_View']
-        df_view = df_view[~df_view['Unique_Key'].isin(excluded_refs)]
-        df_view = df_view.drop(columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key'])
+    if show_existing:
+        # Show ONLY existing customers (those in excluded list)
+        if excluded_refs:
+            df_view = df_view[df_view['Unique_Key'].isin(excluded_refs)]
+        else:
+             df_view = pd.DataFrame(columns=df_view.columns) # Empty if no history
+    else:
+        # Show ONLY new customers (those NOT in excluded list)
+        if excluded_refs:
+             df_view = df_view[~df_view['Unique_Key'].isin(excluded_refs)]
+    
+    df_view = df_view.drop(columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key'])
 
     df_view['Ref_Clean'] = df_view['Ref. No.'].astype(str).str.strip()
     df_view['Label'] = df_view['Name'].astype(str) + " (" + df_view['Mobile'].astype(str) + ")"
     
     if df_view.empty:
-        if use_filters:
-            st.warning(f"No active customers found for {filter_date} in {filter_loc}.")
-        else:
-            st.warning("No active customers found in the file.")
+        if show_existing: st.info("📂 No existing invoices found for this month.")
+        else: st.success("✅ All customers have invoices! Switch toggle to view existing.")
+
         return
 
     selected_label = st.selectbox(f"Select Customer ({mode}):", [""] + list(df_view['Label'].unique()), key=f"sel_{mode}")
@@ -1465,7 +1482,6 @@ def render_invoice_ui(df_main, mode="standard"):
             plan_to_save = f"Plan F: Rehabilitative Care and {sub_service_val}"
         elif c_plan == "A-la-carte Services":
             plan_to_save = f"Other Services - {sub_service_val}"
-																	  
 		# Clean credit for save
         final_credit_val = ref_credit_input.strip()
         # If it looks like a float ending in .0, strip it
@@ -1547,9 +1563,9 @@ if raw_file_obj:
         df = normalize_columns(df, COLUMN_ALIASES)
         
         with tab1: render_invoice_ui(df, mode="standard")
-        with tab2: render_invoice_ui(df, mode="force_new")
         
-        with tab3:
+        
+        with tab2:
             st.header("©️ Duplicate Invoice")
             client = get_gspread_client()
             mid = extract_id_from_url(sys_config.get("master_sheet_url"))
@@ -1580,7 +1596,7 @@ if raw_file_obj:
                     else: st.warning("No records found in this month.")
                 except Exception as e: st.error(f"Could not load history for this month: {e}")
 
-        with tab4:
+        with tab3:
             st.header("🛠 Manage Services")
             SERVICES_MASTER = {
                 "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
@@ -1602,7 +1618,7 @@ if raw_file_obj:
                 st.error(f"❌ Excluded ({len(exc)})")
                 for e in exc: st.write(f"- {e}")
         
-        with tab5:
+        with tab4:
             st.header("Nurse Management")
             client = get_gspread_client()
             mid = extract_id_from_url(sys_config.get("master_sheet_url"))
@@ -1629,7 +1645,7 @@ if raw_file_obj:
             else:
                 st.warning("Please configure Master Sheet URL in Sidebar.")
 
-        with tab6:
+        with tab5:
             st.header("📝 Create Agreements")
             
             use_filt_ag = st.checkbox("🔍 Enable Search Filters (Date/Location)", key="use_filt_ag")
