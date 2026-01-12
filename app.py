@@ -294,80 +294,98 @@ def construct_description_html(row):
 def construct_amount_html(row, billing_qty):
     try: unit_rate = float(row.get('Unit Rate', 0)) 
     except: 
-        # Fallback if 'Unit Rate' is not found, try 'Amount' (History sheet uses 'Amount')
         try: unit_rate = float(row.get('Amount', 0))
         except: unit_rate = 0.0
         
     try: visits_needed = int(float(row.get('Visits', 0)))
     except: visits_needed = 0
     
-    period_raw = str(row.get('Period', '')).strip()
-    period_lower = period_raw.lower()
-    shift_raw = str(row.get('Shift', '')).strip()
+    # --- 1. DEFINE DETAILS TEXT (Fixes NameError) ---
+    p_raw_check = str(row.get('Period', '')).strip()
+    p_check_lower = p_raw_check.lower()
+    shift_raw_check = str(row.get('Shift', '')).strip()
+    shift_check_lower = shift_raw_check.lower()
     
-    is_per_visit = "per visit" in shift_raw.lower()
+    details_text = ""
     
-    billing_note = ""
-    def get_plural(unit, qty):
-        if "month" in unit.lower(): return "Months" if qty > 1 else "Month"
-        if "week" in unit.lower(): return "Weeks" if qty > 1 else "Week"
-        if "day" in unit.lower(): return "Days" if qty > 1 else "Day"
-        if "visit" in unit.lower(): return "Visits" if qty > 1 else "Visit" 
-        return unit
+    if "per visit" in shift_check_lower:
+        if billing_qty == 1: details_text = f"Paid for {billing_qty} Visit"
+        else: details_text = f"Paid for {billing_qty} Visits"
+    
+    elif "daily" in p_check_lower:
+        if billing_qty == 1:
+            details_text = f"Paid for {billing_qty} Day"
+        elif billing_qty % 7 == 0:
+            weeks_val = int(billing_qty / 7)
+            if weeks_val == 1: details_text = f"Paid for {weeks_val} Week"
+            else: details_text = f"Paid for {weeks_val} Weeks"
+        else:
+            details_text = f"Paid for {billing_qty} Days"
+            
+    elif "monthly" in p_check_lower:
+        if billing_qty == 1: details_text = f"Paid for {billing_qty} Month"
+        else: details_text = f"Paid for {billing_qty} Months"
         
+    elif "weekly" in p_check_lower:
+        if billing_qty == 1: details_text = f"Paid for {billing_qty} Week"
+        else: details_text = f"Paid for {billing_qty} Weeks"
+        
+    else:
+        details_text = f"Paid for {billing_qty} {p_raw_check}"
+
+    # --- 2. BILLING NOTE LOGIC ---
+    billing_note = ""
+    is_per_visit = "per visit" in shift_check_lower
+    
     if is_per_visit:
-        paid_text = f"Paid for {billing_qty} {get_plural('Visit', billing_qty)}"
         if visits_needed > 1 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
         elif billing_qty >= visits_needed: billing_note = f"Paid for {visits_needed} Visits."
         elif visits_needed == 1: billing_note = "Paid for 1 Visit."
         elif billing_qty < visits_needed: billing_note = f"Next Bill will be Generated after {billing_qty} Visits."
-        else: billing_note = paid_text
-    elif "month" in period_lower or "week" in period_lower:
-        base_unit = "Month" if "month" in period_lower else "Week"
-        paid_text = f"Paid for {billing_qty} {get_plural(base_unit, billing_qty)}"
+        else: billing_note = details_text
+        
+    elif "month" in p_check_lower or "week" in p_check_lower:
+        base_unit = "Month" if "month" in p_check_lower else "Week"
+        plural_unit = base_unit + "s" if billing_qty > 1 else base_unit
+        
         if visits_needed > 1 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
-        elif visits_needed > billing_qty: billing_note = f"Next Bill will be Generated after {billing_qty} {get_plural(base_unit, billing_qty)}."
-        else: billing_note = paid_text
-    elif "daily" in period_lower:
-        paid_text = f"Paid for {billing_qty} {get_plural('Day', billing_qty)}"
+        elif visits_needed > billing_qty: billing_note = f"Next Bill will be Generated after {billing_qty} {plural_unit}."
+        else: billing_note = details_text
+        
+    elif "daily" in p_check_lower:
         if 1 < visits_needed < 6 and billing_qty == 1: billing_note = "Next Billing will be generated after the Payment to Continue the Service."
         elif billing_qty >= visits_needed: billing_note = f"Paid for {visits_needed} Days."
         elif visits_needed == 1: billing_note = "Paid for 1 Day."
         elif billing_qty < visits_needed: billing_note = f"Next Bill will be Generated after {billing_qty} Days."
-        else: billing_note = paid_text
-    else:
-        paid_text = f"Paid for {billing_qty} {period_raw}"
-        billing_note = ""
-    
+        else: billing_note = details_text
+
     total_amount = unit_rate * billing_qty
     
-    # --- SHIFT DISPLAY LOGIC (Keep this) ---
+    # --- 3. SHIFT & PERIOD DISPLAY LOGIC ---
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
-    shift_display = shift_map.get(shift_raw, shift_raw)
+    shift_display = shift_map.get(shift_raw_check, shift_raw_check)
     if "12" in shift_display and "Time" not in shift_display: shift_display += " (Time)"
     
-    # --- CRITICAL UPDATE: PERIOD DISPLAY LOGIC ---
-    # Logic to convert Monthly -> Month, Daily -> Day, Weekly -> Week
-    period_display = period_raw # Default fallback
+    # Logic: Monthly -> Month, Weekly -> Week, Daily -> Day
+    period_display = p_raw_check # Default fallback
+    if "month" in p_check_lower: period_display = "Month"
+    elif "week" in p_check_lower: period_display = "Week"
+    elif "daily" in p_check_lower: period_display = "Day"
     
-    if "month" in period_lower: period_display = "Month"
-    elif "week" in period_lower: period_display = "Week"
-    elif "daily" in period_lower: period_display = "Day"
-    
-    # -----------(Note: We removed the 'if is_per_visit: period_display = "Visit"' line here)---------
+    # Remove "Visit" from period display if it's per visit (handled in rate_line_html below)
     
     unit_rate_str = "{:,.0f}".format(unit_rate)
     total_amount_str = "{:,.0f}".format(total_amount)
     
-    # ⭐ NEW: CONDITIONAL RATE DISPLAY ⭐
-    # If Per Visit, show: "Per Visit = ₹ 900"
-    # Else show: "12 Hours.. / Month = ₹ 30,000"
+    # --- 4. RATE LINE FORMATTING (Per Visit Logic) ---
     if is_per_visit:
+        # RESULT: Per Visit = ₹ 900
         rate_line_html = f"{shift_display} = <b>₹ {unit_rate_str}</b>"
     else:
+        # RESULT: 12 Hours.. / Month = ₹ 30,000
         rate_line_html = f"{shift_display} / {period_display} = <b>₹ {unit_rate_str}</b>"
 
-    # ⭐ CHECK FOR OVERRIDE FROM TAB 2
+    # --- 5. CHECK FOR OVERRIDE FROM TAB 2 ---
     if 'Details_Override' in row:
         paid_for_text = row['Details_Override']
     else:
@@ -400,226 +418,6 @@ def convert_html_to_pdf(source_html):
     if pisa_status.err: 
         return None
     return result.getvalue()
-
-											
-															 
-											
-															
-					
-																											
-			
-													 
-																		 
-						  
-									 
-									   
-														 
-								
-							 
-								  
-									  
-								   
-											  
-				   
-						  
-											 
-								
-								
-				   
-																	  
-							   
-			   
-													 
-			
-			 
-	   
-					
-
-											
-														  
-											
-										   
-													   
-				   
-			
-															
-													  
-			
-		
-														   
-												  
-			
-			 
-	   
-				   
-
-											
-																   
-											
-																			
-												 
-										
-											   
-									
-										  
-									   
-										 
-	
-										 
-									  
-										
-	
-		 
-														 
-												 
-			
-						  
-	
-													
-												
-												
-	
-					 
-		   
-																				
-															
-																																																													 
-																																					   
-																																																		
-										 
-																																										 
-													
-																						 
-																	  
-																					   
-																						   
-																																			   
-																  
-																				   
-																			   
-																														   
-																																 
-																														  
-																					 
-																																	 
-																																			   
-											
-															
-																			  
-																																					  
-												 
-																																												  
-																																																	   
-																   
-					  
-																									  
-																								   
-														
-																																						   
-														 
-																																				  
-																   
-															  
-		 
-			
-	   
-	
-																							   
-	
-			   
-				   
-		  
-		  
-							  
-																			  
-										
-					 
-		   
-		  
-										 
-														
-			  
-		
-									   
-										
-										  
-							  
-					  
-										 
-												
-																	   
-																		  
-					  
-				  
-			
-									   
-								   
-				  
-			
-										  
-											
-																	   
-																	 
-					  
-											
-																
-																	  
-					  
-											
-																		
-																	
-					  
-											
-																   
-																   
-					  
-											
-																
-																	   
-					  
-											
-																  
-																			 
-					  
-				  
-			
-										 
-					   
-						
-																		
-																 
-														   
-														   
-						 
-						
-					   
-						
-															  
-																
-										 
-																   
-						 
-						
-					
-			
-										 
-										  
-																	
-																		
-					  
-				  
-			
-																									   
-			
-								
-																								
-				  
-			  
-		   
-		   
-	   
-	
-			   
 
 def normalize_columns(df, aliases):
     df.columns = df.columns.astype(str).str.strip()
