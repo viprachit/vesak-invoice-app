@@ -1819,16 +1819,23 @@ if raw_file_obj:
                                                     # Column X is index 24
                                                     today_str = datetime.date.today().strftime("%d-%m-%Y")
                                                     
-                                                    # Update 'Service Ended' (Col 24)
+                                                    # Update 'Service Ended' (Col 24 / X)
                                                     ws_srv.update_cell(r_idx, 24, today_str)
                                                     
                                                     # d. Format Cell Color to Red (#ea9999)
-                                                    # RGB(234, 153, 153) normalized:
-                                                    ws_srv.format(f"X{r_idx}", {
+                                                    # Target 1: Service Ended (X) -> f"X{r_idx}"
+                                                    # Target 2: Invoice Number (D) -> f"D{r_idx}"
+                                                    
+                                                    red_format = {
                                                         "backgroundColor": {
                                                             "red": 0.9176, "green": 0.6, "blue": 0.6
                                                         }
-                                                    })
+                                                    }
+                                                    
+                                                    # Apply to both cells
+                                                    ws_srv.format(f"X{r_idx}", red_format)
+                                                    ws_srv.format(f"D{r_idx}", red_format)									  
+																						  
                                                     
                                                     st.success(f"✅ Service Ended for {row_srv['Customer Name']}!")
                                                     
