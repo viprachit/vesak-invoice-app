@@ -1852,7 +1852,7 @@ if raw_file_obj:
             else:
                 st.error("Please configure Master Sheet URL in sidebar.")
 		
-# ⭐ EDIT 2: REPLACE ENTIRE 'with tab4:' BLOCK
+# ⭐ REPLACE ENTIRE 'with tab4:' BLOCK
         with tab4:
             st.header("💰 Nurse Management")
             
@@ -1896,7 +1896,7 @@ if raw_file_obj:
                                     placeholder="Select a customer..."
                                 )
                                 
-                                # Defaults for input fields
+                                # Defaults for input fields (Empty by default)
                                 val_name = ""
                                 val_extra = ""
                                 val_note = ""
@@ -1915,21 +1915,21 @@ if raw_file_obj:
                                         try: val_pay = int(float(str(row_nur.get('Nurse Payment', 0)).replace(',', '')))
                                         except: val_pay = 0
 
-                                # UI: Four Text Boxes (Editable if customer selected)
+                                # UI: Four Text Boxes (ALWAYS EDITABLE)
                                 st.divider()
                                 c1, c2 = st.columns(2)
                                 with c1:
                                     # b. Nurse Name
-                                    in_name = st.text_input("Nurse Name:", value=val_name, disabled=not is_editable, key="n_nm")
+                                    in_name = st.text_input("Nurse Name:", value=val_name, key="n_nm")
                                     # c. Nurse Name (Extra)
-                                    in_extra = st.text_input("Nurse Name (Extra):", value=val_extra, disabled=not is_editable, key="n_ex")
+                                    in_extra = st.text_input("Nurse Name (Extra):", value=val_extra, key="n_ex")
                                 with c2:
                                     # e. Nurse Payment (Numbers Only, No Decimal)
-                                    in_pay = st.number_input("Nurse Payment (No Decimals):", min_value=0, value=val_pay, step=1, format="%d", disabled=not is_editable, key="n_py")
+                                    in_pay = st.number_input("Nurse Payment (No Decimals):", min_value=0, value=val_pay, step=1, format="%d", key="n_py")
                                     # d. Nurse Note
-                                    in_note = st.text_area("Nurse Note:", value=val_note, disabled=not is_editable, key="n_nt")
+                                    in_note = st.text_area("Nurse Note:", value=val_note, key="n_nt")
                                 
-                                # Update Button
+                                # Update Button (Only visible if customer selected)
                                 if is_editable:
                                     btn_label = "Update / Overwrite Data" if show_exist_nur else "Add Nurse Payment"
                                     if st.button(btn_label, type="primary"):
@@ -1944,6 +1944,7 @@ if raw_file_obj:
                                             st.success("✅ Nurse details updated successfully!")
                                             time.sleep(1)
                                             st.rerun()
+                                    st.info("👆 Please select a customer to enable the Update button.")	 
                             else:
                                 msg = "No customers found with existing Nurse Payments." if show_exist_nur else "No customers found requiring new Nurse Payment."
                                 st.info(msg)
