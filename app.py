@@ -934,43 +934,49 @@ def render_invoice_ui(df_main, mode="standard"):
         conflict_exists = False
 
     if not conflict_exists:
-        # 1. Setup Formatting
-        # Robust Location Code: Clean the input to ensure exact match
+        # 1. Setup Strict Formatting
+        # Clean input to ensure "PUN" matches "PUN " or "pun"
         raw_loc = str(row.get('Location', '')).lower().strip()
         loc_code = "MUM" if "mumbai" in raw_loc else "PUN"
         
-        # 2. Logic: Sequence continues for the Month/Year/Location, resets otherwise
-        next_seq = 1
+        # 2. Define Targets for the New Invoice
         target_month = default_date.month
         target_year = default_date.year
+        
+        next_seq = 1 # Default start
 
         if not df_history.empty and 'Invoice Number' in df_history.columns:
             existing_seqs = []
             
-            # Force convert column to string to handle '001' vs 1 issues
-            inv_series = df_history['Invoice Number'].astype(str)
+            # Robustly convert column to string and drop empties to prevent crashes
+            # We iterate through the ENTIRE history to guarantee we find the true MAX sequence for this month
+            inv_series = df_history['Invoice Number'].dropna().astype(str)
 
             for existing_inv in inv_series:
-                # STRICT REGEX PARSING: LOC-DDMMYYYY-SEQ
-                # Capture Groups: 1=LOC, 2=DD, 3=MM, 4=YYYY, 5=SEQ
-                match = re.search(r'^([A-Z]{3})-(\d{2})(\d{2})(\d{4})-(\d{3,})$', existing_inv.strip())
+                clean_inv = existing_inv.strip()
+                
+                # STRICT REGEX: LOC-DDMMYYYY-SEQ
+                # Capture Groups: 
+                # 1=LOC, 2=DD (Date), 3=MM (Month), 4=YYYY (Year), 5=SEQ (Sequence)
+                match = re.search(r'^([A-Z]{3})-(\d{2})(\d{2})(\d{4})-(\d{3,})$', clean_inv)
                 
                 if match:
                     found_loc = match.group(1)
-                    # found_day = match.group(2) # Not needed for grouping
+                    # found_day = match.group(2) # Day doesn't matter for sequence
                     found_month = int(match.group(3))
                     found_year = int(match.group(4))
                     found_seq = int(match.group(5))
                     
-                    # STRICT MATCH: Only increment if Location, Month, and Year match exactly
+                    # LOGIC: Check if this invoice belongs to the SAME Month/Year/Location
                     if found_loc == loc_code and found_month == target_month and found_year == target_year:
                         existing_seqs.append(found_seq)
             
+            # If we found invoices for this month, take the Highest Sequence + 1
             if existing_seqs:
                 next_seq = max(existing_seqs) + 1
 
         # 3. Construct Final String
-        # Format: LOC-DDMMYYYY-SEQ
+        # Format: LOC-DDMMYYYY-SEQ (e.g., PUN-12012026-003)
         date_str_final = default_date.strftime('%d%m%Y')
         inv_final = f"{loc_code}-{date_str_final}-{next_seq:03d}"
 
