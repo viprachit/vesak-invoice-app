@@ -186,39 +186,40 @@ def clean_referral_field(val):
     return s_val
 
 # --- CRITICAL FIX 3: CACHED EXCLUSION LIST (FIXES 429 ERROR) ---
+# Modified get_cached_exclusion_list
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_exclusion_list(master_id, month_str):
-	   
-																				 
-	   
     client = get_gspread_client()
-    if not client or not master_id: return []
-	
-    excluded_refs = []
+    if not client or not master_id: return [], [] # Return Tuple of two lists
+    
+    present_refs = []
+    ended_refs = []
     try:
         wb = client.open_by_key(master_id)
         try:
             sheet_check = wb.worksheet(month_str)
             data_check = sheet_check.get_all_records()
             df_check = pd.DataFrame(data_check)
-			
+            
             if not df_check.empty:
                 df_check['Ref_Norm'] = df_check['Ref. No.'].apply(normalize_id)
                 df_check['Ser_Norm'] = df_check['Serial No.'].apply(normalize_id)
                 
-                # Check for existing invoices (regardless of ended service)
-                # We need all Ref-Serial pairs present in history
- 
- 
-	
+                # Iterate rows to find Present and Ended customers
                 for _, row in df_check.iterrows():
                     key = f"{row['Ref_Norm']}-{row['Ser_Norm']}"
-                    excluded_refs.append(key)
+                    present_refs.append(key)
+                    
+                    # Check Column X ('Service Ended')
+                    svc_end = str(row.get('Service Ended', '')).strip()
+                    if svc_end:
+                        ended_refs.append(key)
+                        
         except gspread.exceptions.WorksheetNotFound: pass
     except Exception as e:
-        return []
-		
-    return excluded_refs
+        return [], []
+        
+    return present_refs, ended_refs
 
 # ==========================================
 # SECTION 1: FUNCTION 2 - ENHANCED generate_filename()
@@ -769,22 +770,28 @@ def render_invoice_ui(df_main, mode="standard"):
 
     # --- CRITICAL POINT 2: EXCLUSION LOGIC (CACHED) ---
     current_mmm_yy = datetime.date.today().strftime("%b-%y")
-    excluded_refs = get_cached_exclusion_list(master_id, current_mmm_yy)
-# ⭐ CHANGE: Filter list based on Toggle State
+    
+    # UNPACK TUPLE: Get both 'Present' and 'Ended' lists
+    present_refs, ended_refs = get_cached_exclusion_list(master_id, current_mmm_yy)
+
+    # Filter list based on Toggle State
     df_view['Ref_Norm_View'] = df_view['Ref. No.'].apply(normalize_id)
     df_view['Ser_Norm_View'] = df_view['Serial No.'].apply(normalize_id)
     df_view['Unique_Key'] = df_view['Ref_Norm_View'] + "-" + df_view['Ser_Norm_View']
 
     if show_existing:
-        # Show ONLY existing customers (those in excluded list)
-        if excluded_refs:
-            df_view = df_view[df_view['Unique_Key'].isin(excluded_refs)]
+        # Switch ON: Show Existing Customers
+        # CRITICAL: Exclude those with "Service Ended" data
+        if present_refs:
+            # Logic: Must be in History (Present) AND NOT in Ended List
+            active_keys = set(present_refs) - set(ended_refs)
+            df_view = df_view[df_view['Unique_Key'].isin(active_keys)]
         else:
              df_view = pd.DataFrame(columns=df_view.columns) # Empty if no history
     else:
-        # Show ONLY new customers (those NOT in excluded list)
-        if excluded_refs:
-             df_view = df_view[~df_view['Unique_Key'].isin(excluded_refs)]
+        # Switch OFF: Show New Customers (Not in History)
+        if present_refs:
+             df_view = df_view[~df_view['Unique_Key'].isin(present_refs)]
     
     df_view = df_view.drop(columns=['Ref_Norm_View', 'Ser_Norm_View', 'Unique_Key'])
 
@@ -1757,52 +1764,82 @@ if raw_file_obj:
 
         with tab3:
             st.header("🛠 Manage Services")
-            SERVICES_MASTER = {
-                "Plan A: Patient Attendant Care": ["All", "Basic Care", "Assistance with Activities for Daily Living", "Feeding & Oral Hygiene", "Mobility Support & Transfers", "Bed Bath and Emptying Bedpans", "Catheter & Ostomy Care"],
-                "Plan B: Skilled Nursing": ["All", "Intravenous (IV) Therapy & Injections", "Medication Management", "Advanced Wound Care", "Catheter & Ostomy Care", "Post-Surgical Care"],
-                "Plan C: Chronic Management": ["All", "Care for Bed-Ridden Patients", "Dementia & Alzheimer's Care", "Disability Support"],
-                "Plan D: Elderly Companion": ["All", "Companionship & Conversation", "Fall Prevention & Mobility", "Light Meal Preparation"],
-                "Plan E: Maternal & Newborn": ["All", "Postnatal & Maternal Care", "Newborn Care Assistance"],
-                "Plan F: Rehabilitative Care": ["Therapeutic Massage", "Exercise Therapy", "Geriatric Rehabilitation", "Neuro Rehabilitation", "Pain Management", "Post Op Rehab"],
-                "A-la-carte Services": ["Hospital Visits", "Medical Equipment", "Medicines", "Diagnostic Services", "Nutrition Consultation", "Ambulance", "Doctor Visits", "X-Ray", "Blood Collection"]
-            }
-            ms_plan = st.selectbox("Select Plan to View:", list(SERVICES_MASTER.keys()))
-            ms_sub = st.text_input("Simulate Sub-Services Input:", value="All")
-            inc, exc = get_base_lists(ms_plan, ms_sub)
-            c1, c2 = st.columns(2)
-            with c1: 
-                st.success(f"✅ Included ({len(inc)})")
-                for i in inc: st.write(f"- {i}")
-            with c2: 
-                st.error(f"❌ Excluded ({len(exc)})")
-                for e in exc: st.write(f"- {e}")
-        
-        with tab4:
-            st.header("Nurse Management")
-            client = get_gspread_client()
-            mid = extract_id_from_url(sys_config.get("master_sheet_url"))
             
-            if client and mid:
+            client_srv = get_gspread_client()
+            mid_srv = extract_id_from_url(sys_config.get("master_sheet_url"))
+            
+            if client_srv and mid_srv:
                 try:
-                    wb = client.open_by_key(mid)
-                    ws = wb.worksheet(datetime.date.today().strftime("%b-%y"))
-                    st.write("Enter Invoice Number to manage nurse payments:")
-                    inv_to_pay = st.text_input("Invoice No:")
-                    st.divider()
-                    col_n1, col_n2 = st.columns(2)
-                    with col_n1:
-                        amt = st.number_input("Nurse Payment Amount:", min_value=0.0)
-                        nm = st.text_input("Nurse Name:")
-                    with col_n2:
-                        nm_extra = st.text_input("Nurse Name (Extra):")
-                        nm_note = st.text_area("Nurse Note")
-                    if st.button("Update Nurse Details (Overwrite)"):
-                        success, form = update_nurse_management(ws, inv_to_pay, amt, nm, nm_extra, nm_note)
-                        if success: st.success("✅ Nurse details updated successfully in sheet!")
-                        else: st.error("❌ Invoice not found in current month's sheet.")
-                except Exception as e: st.error(f"Error accessing sheet: {e}")
+                    wb_srv = client_srv.open_by_key(mid_srv)
+                    cur_month_srv = datetime.date.today().strftime("%b-%y")
+                    try:
+                        ws_srv = wb_srv.worksheet(cur_month_srv)
+                        data_srv = ws_srv.get_all_records()
+                        df_srv = pd.DataFrame(data_srv)
+                        
+                        if not df_srv.empty and 'Customer Name' in df_srv.columns:
+                            # Filter: Show only customers where 'Service Ended' is BLANK
+                            if 'Service Ended' in df_srv.columns:
+                                df_active = df_srv[df_srv['Service Ended'].astype(str).str.strip() == ""]
+                                
+                                if not df_active.empty:
+                                    # Create Display Label: Name (Invoice No)
+                                    df_active['Display'] = df_active['Customer Name'] + " (" + df_active['Invoice Number'].astype(str) + ")"
+                                    
+                                    # a. Selectbox Default is Blank (index=None)
+                                    sel_srv = st.selectbox(
+                                        "Select Customer to End Service:", 
+                                        df_active['Display'].unique(), 
+                                        index=None, 
+                                        placeholder="Select active customer..."
+                                    )
+                                    
+                                    if sel_srv:
+                                        row_srv = df_active[df_active['Display'] == sel_srv].iloc[0]
+                                        st.warning(f"You are ending service for: **{row_srv['Customer Name']}**")
+                                        
+                                        # e. End Service Button
+                                        if st.button("🛑 Confirm End Service", type="primary"):
+                                            try:
+                                                # Find the cell to update using Invoice Number (Unique)
+                                                cell = ws_srv.find(str(row_srv['Invoice Number']))
+                                                if cell:
+                                                    r_idx = cell.row
+                                                    # Column X is index 24
+                                                    today_str = datetime.date.today().strftime("%d-%m-%Y")
+                                                    
+                                                    # Update 'Service Ended' (Col 24)
+                                                    ws_srv.update_cell(r_idx, 24, today_str)
+                                                    
+                                                    # d. Format Cell Color to Red (#ea9999)
+                                                    # RGB(234, 153, 153) normalized:
+                                                    ws_srv.format(f"X{r_idx}", {
+                                                        "backgroundColor": {
+                                                            "red": 0.9176, "green": 0.6, "blue": 0.6
+                                                        }
+                                                    })
+                                                    
+                                                    st.success(f"✅ Service Ended for {row_srv['Customer Name']}!")
+                                                    
+                                                    # f. Force Clear Cache Immediately
+                                                    get_cached_exclusion_list.clear()
+                                                    time.sleep(1)
+                                                    st.rerun()
+                                            except Exception as ex:
+                                                st.error(f"Update failed: {ex}")
+                                else:
+                                    st.success("✅ All services in this month are currently Ended or Empty.")
+                            else:
+                                st.error("Column 'Service Ended' missing in Sheet.")
+                        else:
+                            st.warning("No records found in this month's sheet.")
+                            
+                    except gspread.exceptions.WorksheetNotFound:
+                        st.error(f"Sheet '{cur_month_srv}' not found.")
+                except Exception as e:
+                    st.error(f"Connection Error: {e}")
             else:
-                st.warning("Please configure Master Sheet URL in Sidebar.")
+                st.error("Please configure Master Sheet URL in sidebar.")
 
         with tab5:
             st.header("📝 Create Agreements")
