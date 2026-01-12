@@ -354,7 +354,11 @@ def construct_amount_html(row, billing_qty):
     unit_label = "Month" if "month" in period_lower else "Week" if "week" in period_lower else "Day"
     if is_per_visit: unit_label = "Visit"
     
-    paid_for_text = f"Paid for {billing_qty} {get_plural(unit_label, billing_qty)}"
+    # ⭐ CHECK FOR OVERRIDE FROM TAB 2
+    if 'Details_Override' in row:
+        paid_for_text = row['Details_Override']
+    else:
+        paid_for_text = f"Paid for {billing_qty} {get_plural(unit_label, billing_qty)}"
 
     return f"""
     <div style="text-align: right; font-size: 13px; color: #555;">
@@ -1654,6 +1658,46 @@ if raw_file_obj:
                             except:
                                 row['Unit Rate'] = 0.0
                             # ------------------------------------------------------------------
+
+                            # ⭐ INSERT USER LOGIC FOR DETAILS TEXT ⭐
+                            billing_qty = qty # Map qty to variable name used in your logic
+                            
+                            p_raw_check = str(row.get('Period', '')).strip()
+                            p_check_lower = p_raw_check.lower()
+                            shift_raw_check = str(row.get('Shift', '')).strip()
+                            shift_check_lower = shift_raw_check.lower()
+                            
+                            details_text = ""
+                            
+                            if "per visit" in shift_check_lower:
+                                if billing_qty == 1: details_text = f"Paid for {billing_qty} Visit"
+                                else: details_text = f"Paid for {billing_qty} Visits"
+                            
+                            elif "daily" in p_check_lower:
+                                if billing_qty == 1:
+                                    details_text = f"Paid for {billing_qty} Day"
+                                elif billing_qty % 7 == 0:
+                                    weeks_val = int(billing_qty / 7)
+                                    if weeks_val == 1: details_text = f"Paid for {weeks_val} Week"
+                                    else: details_text = f"Paid for {weeks_val} Weeks"
+                                else:
+                                    details_text = f"Paid for {billing_qty} Days"
+                                    
+                            elif "monthly" in p_check_lower:
+                                if billing_qty == 1: details_text = f"Paid for {billing_qty} Month"
+                                else: details_text = f"Paid for {billing_qty} Months"
+                                
+                            elif "weekly" in p_check_lower:
+                                if billing_qty == 1: details_text = f"Paid for {billing_qty} Week"
+                                else: details_text = f"Paid for {billing_qty} Weeks"
+                                
+                            else:
+                                details_text = f"Paid for {billing_qty} {p_raw_check}"
+                            
+                            # Inject this calculated text into the row object with the specific key
+                            # The helper function (Edit 1) will pick this up.
+                            row['Details_Override'] = details_text
+                            # ---------------------------------------------------------
                             
                             amount_col_html = construct_amount_html(row, qty)
                             
