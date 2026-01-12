@@ -1852,7 +1852,8 @@ if raw_file_obj:
             else:
                 st.error("Please configure Master Sheet URL in sidebar.")
 		
-		with tab4:
+# ⭐ EDIT 2: REPLACE ENTIRE 'with tab4:' BLOCK
+        with tab4:
             st.header("💰 Nurse Management")
             
             client_nur = get_gspread_client()
