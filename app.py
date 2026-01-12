@@ -934,27 +934,47 @@ def render_invoice_ui(df_main, mode="standard"):
         conflict_exists = False
 
     if not conflict_exists:
+        # 1. Setup Formatting
         loc_code = "MUM" if "mumbai" in str(row.get('Location', '')).lower() else "PUN"
-        date_part = default_date.strftime('%d%m%Y')
-        prefix = f"{loc_code}-{date_part}-"
+        
+        # 2. Logic: Sequence continues for the Month, resets when Month changes
         next_seq = 1
+        target_month = default_date.month
+        target_year = default_date.year
 
         if not df_history.empty and 'Invoice Number' in df_history.columns:
-            todays_invs = df_history[
-                df_history['Invoice Number']
-                .astype(str)
-                .str.startswith(prefix)
-            ]
-            if not todays_invs.empty:
-                seqs = [
-                    int(x.split('-')[-1])
-                    for x in todays_invs['Invoice Number']
-                    if '-' in x
-                ]
-                if seqs:
-                    next_seq = max(seqs) + 1
+            existing_seqs = []
+            
+            for existing_inv in df_history['Invoice Number']:
+                # Parse format: IN-LOC-DDMMYYYY-SEQ
+                # Example: IN-PUN-01012026-001
+                try:
+                    parts = str(existing_inv).strip().split('-')
+                    
+                    # Validate structure (Must have 4 parts, match 'IN', match Location)
+                    if len(parts) == 4 and parts[0] == "IN" and parts[1] == loc_code:
+                        date_part_str = parts[2] # DDMMYYYY
+                        seq_part_str = parts[3]
+                        
+                        # Extract Month/Year from the Invoice String
+                        # Assuming DDMMYYYY format based on your request
+                        if len(date_part_str) == 8 and seq_part_str.isdigit():
+                            inv_month = int(date_part_str[2:4])
+                            inv_year = int(date_part_str[4:])
+                            
+                            # Only increment sequence if Month & Year match current invoice
+                            if inv_month == target_month and inv_year == target_year:
+                                existing_seqs.append(int(seq_part_str))
+                except:
+                    continue # Skip malformed invoice numbers
+            
+            if existing_seqs:
+                next_seq = max(existing_seqs) + 1
 
-        inv_final = f"{prefix}{next_seq:03d}"
+        # 3. Construct Final String
+        # Format: IN-LOC-DDMMYYYY-SEQ
+        date_str_final = default_date.strftime('%d%m%Y')
+        inv_final = f"IN-{loc_code}-{date_str_final}-{next_seq:03d}"
 
     # ================= UI SECTION =================
 
