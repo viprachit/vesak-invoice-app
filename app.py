@@ -340,13 +340,23 @@ def construct_amount_html(row, billing_qty):
         billing_note = ""
     
     total_amount = unit_rate * billing_qty
+    
+    # --- SHIFT DISPLAY LOGIC (Keep this) ---
     shift_map = {"12-hr Day": "12 Hours - Day", "12-hr Night": "12 Hours - Night", "24-hr": "24 Hours"}
     shift_display = shift_map.get(shift_raw, shift_raw)
     if "12" in shift_display and "Time" not in shift_display: shift_display += " (Time)"
     
-    period_display = "Monthly" if "month" in period_lower else period_raw.capitalize()
-    if "daily" in period_lower: period_display = "Daily"
+    # --- CRITICAL UPDATE: PERIOD DISPLAY LOGIC ---
+    # Logic to convert Monthly -> Month, Daily -> Day, Weekly -> Week
+    period_display = period_raw # Default fallback
+    
+    if "month" in period_lower: period_display = "Month"
+    elif "week" in period_lower: period_display = "Week"
+    elif "daily" in period_lower: period_display = "Day"
+    
     if is_per_visit: period_display = "Visit"
+    
+    # ---------------------------------------------
     
     unit_rate_str = "{:,.0f}".format(unit_rate)
     total_amount_str = "{:,.0f}".format(total_amount)
@@ -1659,45 +1669,7 @@ if raw_file_obj:
                                 row['Unit Rate'] = 0.0
                             # ------------------------------------------------------------------
 
-                            # ⭐ INSERT USER LOGIC FOR DETAILS TEXT ⭐
-                            billing_qty = qty # Map qty to variable name used in your logic
                             
-                            p_raw_check = str(row.get('Period', '')).strip()
-                            p_check_lower = p_raw_check.lower()
-                            shift_raw_check = str(row.get('Shift', '')).strip()
-                            shift_check_lower = shift_raw_check.lower()
-                            
-                            details_text = ""
-                            
-                            if "per visit" in shift_check_lower:
-                                if billing_qty == 1: details_text = f"Paid for {billing_qty} Visit"
-                                else: details_text = f"Paid for {billing_qty} Visits"
-                            
-                            elif "daily" in p_check_lower:
-                                if billing_qty == 1:
-                                    details_text = f"Paid for {billing_qty} Day"
-                                elif billing_qty % 7 == 0:
-                                    weeks_val = int(billing_qty / 7)
-                                    if weeks_val == 1: details_text = f"Paid for {weeks_val} Week"
-                                    else: details_text = f"Paid for {weeks_val} Weeks"
-                                else:
-                                    details_text = f"Paid for {billing_qty} Days"
-                                    
-                            elif "monthly" in p_check_lower:
-                                if billing_qty == 1: details_text = f"Paid for {billing_qty} Month"
-                                else: details_text = f"Paid for {billing_qty} Months"
-                                
-                            elif "weekly" in p_check_lower:
-                                if billing_qty == 1: details_text = f"Paid for {billing_qty} Week"
-                                else: details_text = f"Paid for {billing_qty} Weeks"
-                                
-                            else:
-                                details_text = f"Paid for {billing_qty} {p_raw_check}"
-                            
-                            # Inject this calculated text into the row object with the specific key
-                            # The helper function (Edit 1) will pick this up.
-                            row['Details_Override'] = details_text
-                            # ---------------------------------------------------------
                             
                             amount_col_html = construct_amount_html(row, qty)
                             
