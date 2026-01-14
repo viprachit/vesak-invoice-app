@@ -1053,6 +1053,441 @@ tab1, tab2, tab3, tab4, tab5, = st.tabs([
 ])
 
 # ==========================================
+# 🏛️ AGREEMENT LOGIC & TRANSLATIONS (THE BRAIN)
+# ==========================================
+
+# 1. TRANSLATION DICTIONARY (Legal Terminology)
+AGREEMENT_I18N = {
+    "English": {
+        "title": "CAREGIVER SERVICE RETAINER AGREEMENT",
+        "subtitle": "AGREEMENT OF SERVICE & CODE OF CONDUCT",
+        "agreement_made": "THIS AGREEMENT is made at",
+        "on_date": "on this",
+        "between": "BETWEEN",
+        "and": "AND",
+        "agency_desc": "Vesak Care Foundation, a Foundation Company having its registered office at Kolhapur (hereinafter referred to as the \"AGENCY\", which expression shall, unless repugnant to the context, include its successors and assigns).",
+        "retainer_def": "hereinafter referred to as the",
+        "whereas": "WHEREAS:",
+        "whereas_a": "A. The Agency is engaged in the business of providing professional Patient Care and Home Health services.",
+        "whereas_b": "B. The Retainer has represented to the Agency that they possess the required skills, training, and physical fitness to provide such services and has applied to be empanelled with the Agency.",
+        "agreed": "NOW, THEREFORE, IT IS AGREED AS FOLLOWS:",
+        "sec_1": "1. NATURE OF ENGAGEMENT",
+        "sec_1_1": "The Retainer is engaged as a Professional Retainer on a contract basis and not as a permanent employee.",
+        "sec_1_2": "The Retainer understands that the Agency acts as a facilitator between the Patient and the Retainer.",
+        "sec_2": "2. SCOPE OF DUTIES (STRICT COMPLIANCE)",
+        "sec_2_intro": "The Retainer agrees to perform ONLY the following duties:",
+        "sec_2_1": "2.1 EXCLUSION CLAUSE (NON-DOMESTIC POLICY):",
+        "sec_2_1_text": "The Retainer explicitly agrees that they are NOT a Domestic Helper (Maid). The Retainer shall politely but firmly REFUSE to:",
+        "refuse_list": ["Wash utensils or clothes for the family.", "Sweep or mop the floor (except immediate accidental spillage by patient).", "Cook food for the family.", "Perform any task not related to the patient’s health."],
+        "sec_3": "3. ANTI-POACHING & NON-SOLICITATION (ZERO TOLERANCE)",
+        "sec_3_1": "3.1 The Restriction: The Caregiver acknowledges that the Client/Patient has been introduced solely through the efforts and investment of the Agency.",
+        "sec_3_2": "3.2 Prohibition: The Caregiver agrees that during the tenure of this agreement and for a period of 24 Months after leaving the Agency, they shall NOT:",
+        "prohibit_list": ["Accept direct employment from any Client introduced by the Agency.", "Approach the Client to offer services at a lower rate by bypassing the Agency’s commission.", "Accept 'Private Duty' or 'Cash' from the Client without informing the Agency."],
+        "sec_3_3": "3.3 Consequence of Breach: If the Caregiver is found violating this clause:",
+        "breach_list": ["Blacklisting: The Caregiver will be permanently blacklisted and reported to the Maharashtra Home Healthcare Association.", "Forfeiture: The Agency shall forfeit all pending dues, salary, and security deposits immediately.", "Damages: The Agency reserves the right to claim damages for loss of business."],
+        "sec_4": "4. CODE OF CONDUCT & DISCIPLINE",
+        "sec_4_1": "4.1. Uniform: The Caregiver must wear the designated Uniform and ID Card while on duty.",
+        "sec_4_2": "4.2. Mobile Usage: Use of mobile phones for social media (Reels/YouTube) or video calls during duty hours is Strictly Prohibited.",
+        "sec_4_3": "4.3. Substance Abuse: Consumption of Alcohol, Tobacco, Gutka, or Drugs on duty will lead to Immediate Termination.",
+        "sec_4_4": "4.4. Financial Integrity: The Caregiver shall not borrow money from the Client nor ask for tips/gifts.",
+        "sec_5": "5. CRIMINAL LIABILITY & STATUTORY LAWS",
+        "sec_5_text": "The Caregiver is aware of the laws of the land:",
+        "sec_5_1": "5.1. Theft: Any act of stealing (cash, jewelry, medicines) will be prosecuted under Section 381 of the Indian Penal Code (Theft by Clerk or Servant) which carries a punishment of imprisonment up to 7 Years.",
+        "sec_5_2": "5.2. Elder Abuse: Any negligence or abuse of a Senior Citizen is a punishable offense under the Maintenance and Welfare of Parents and Senior Citizens Act, 2007.",
+        "sec_6": "6. TERMINATION & NOTICE PERIOD",
+        "sec_6_1": "6.1. The Caregiver must provide 30 Days written notice before resigning.",
+        "sec_6_2": "6.2. Patient Abandonment: Leaving the patient unattended mid-shift or absconding without notice is a critical safety violation. In such cases, the Agency will forfeit all dues and may pursue legal action for negligence.",
+        "sec_7": "7. INDEMNITY",
+        "sec_7_text": "The Caregiver agrees to indemnify the Agency against any legal action, claims, or damages arising out of the Caregiver’s own negligence, criminal conduct, or failure to follow medical instructions.",
+        "sec_8": "8. JURISDICTION",
+        "sec_8_text": "All disputes arising out of this agreement are subject to the exclusive jurisdiction of the Courts in",
+        "witness": "IN WITNESS WHEREOF, the parties have signed this Agreement.",
+        "sign_caregiver": "SIGNATURE OF CAREGIVER",
+        "sign_auth": "AUTHORIZED SIGNATORY"
+    },
+    "Hindi": {
+        "title": "देखभालकर्ता सेवा अनुबंध (Caregiver Retainer Agreement)",
+        "subtitle": "सेवा अनुबंध और आचरण संहिता",
+        "agreement_made": "यह अनुबंध",
+        "on_date": "को",
+        "between": "मध्य",
+        "and": "और",
+        "agency_desc": "वेसाक केयर फाउंडेशन, कोल्हापुर में पंजीकृत कार्यालय वाली एक फाउंडेशन कंपनी (इसके बाद \"एजेंसी\" कहा जाएगा)।",
+        "retainer_def": "(इसके बाद \"रिटेनर\" कहा जाएगा)",
+        "whereas": "प्रस्तावना:",
+        "whereas_a": "A. एजेंसी पेशेवर रोगी देखभाल और घरेलू स्वास्थ्य सेवाएं प्रदान करने के व्यवसाय में लगी हुई है।",
+        "whereas_b": "B. रिटेनर ने एजेंसी को यह बताया है कि उनके पास ऐसी सेवाएं प्रदान करने के लिए आवश्यक कौशल, प्रशिक्षण और शारीरिक फिटनेस है।",
+        "agreed": "अब, इसलिए, निम्नलिखित पर सहमति है:",
+        "sec_1": "1. नियुक्ति की प्रकृति",
+        "sec_1_1": "रिटेनर को अनुबंध के आधार पर 'प्रोफेशनल रिटेनर' के रूप में नियुक्त किया गया है, न कि स्थायी कर्मचारी के रूप में।",
+        "sec_1_2": "रिटेनर समझता है कि एजेंसी रोगी और रिटेनर के बीच केवल एक सुविधा प्रदाता (Facilitator) के रूप में कार्य करती है।",
+        "sec_2": "2. कर्तव्यों का दायरा (सख्त अनुपालन)",
+        "sec_2_intro": "रिटेनर केवल निम्नलिखित कर्तव्यों को निभाने के लिए सहमत है:",
+        "sec_2_1": "2.1 अपवर्जन खंड (घरेलू काम नहीं):",
+        "sec_2_1_text": "रिटेनर स्पष्ट रूप से सहमत है कि वे घरेलू सहायक (नौकरानी) नहीं हैं। रिटेनर विनम्रतापूर्वक लेकिन दृढ़ता से निम्नलिखित कार्य करने से मना करेगा:",
+        "refuse_list": ["परिवार के लिए बर्तन या कपड़े धोना।", "झाड़ू या पोछा लगाना (रोगी द्वारा आकस्मिक गंदगी को छोड़कर)।", "परिवार के लिए खाना बनाना।", "कोई भी कार्य जो रोगी के स्वास्थ्य से संबंधित नहीं है।"],
+        "sec_3": "3. अवैध शिकार विरोधी और गैर-याचिका (शून्य सहिष्णुता)",
+        "sec_3_1": "3.1 प्रतिबंध: देखभालकर्ता स्वीकार करता है कि ग्राहक/रोगी का परिचय केवल एजेंसी के प्रयासों और निवेश के माध्यम से किया गया है।",
+        "sec_3_2": "3.2 निषेध: देखभालकर्ता सहमत है कि इस अनुबंध के दौरान और एजेंसी छोड़ने के 24 महीने बाद तक, वे:",
+        "prohibit_list": ["एजेंसी द्वारा पेश किए गए किसी भी ग्राहक से सीधे रोजगार स्वीकार नहीं करेंगे।", "एजेंसी के कमीशन को दरकिनार करके ग्राहक को कम दर पर सेवाएं नहीं देंगे।", "एजेंसी को सूचित किए बिना ग्राहक से 'प्राइवेट ड्यूटी' या 'कैश' स्वीकार नहीं करेंगे।"],
+        "sec_3_3": "3.3 उल्लंघन का परिणाम:",
+        "breach_list": ["ब्लैकलिस्टिंग: देखभालकर्ता को स्थायी रूप से ब्लैकलिस्ट किया जाएगा और महाराष्ट्र होम हेल्थकेयर एसोसिएशन को रिपोर्ट किया जाएगा।", "जब्ती: एजेंसी सभी लंबित बकाया, वेतन और सुरक्षा जमा को तुरंत जब्त कर लेगी।", "हर्जाना: एजेंसी व्यापार के नुकसान के लिए हर्जाना मांगने का अधिकार सुरक्षित रखती है।"],
+        "sec_4": "4. आचरण संहिता और अनुशासन",
+        "sec_4_1": "4.1. वर्दी: ड्यूटी के दौरान देखभालकर्ता को निर्धारित वर्दी और आईडी कार्ड पहनना होगा।",
+        "sec_4_2": "4.2. मोबाइल का उपयोग: ड्यूटी के घंटों के दौरान सोशल मीडिया (Reels/YouTube) या वीडियो कॉल के लिए मोबाइल फोन का उपयोग सख्त वर्जित है।",
+        "sec_4_3": "4.3. नशीले पदार्थ: ड्यूटी पर शराब, तंबाकू, गुटका, या ड्रग्स का सेवन करने पर तत्काल बर्खास्तगी होगी।",
+        "sec_4_4": "4.4. वित्तीय अखंडता: देखभालकर्ता ग्राहक से पैसे उधार नहीं लेगा और न ही सुझाव/उपहार मांगेगा।",
+        "sec_5": "5. आपराधिक दायित्व और कानून",
+        "sec_5_text": "देखभालकर्ता देश के कानूनों से अवगत है:",
+        "sec_5_1": "5.1. चोरी: चोरी (नकदी, गहने, दवाएं) के किसी भी कृत्य पर भारतीय दंड संहिता की धारा 381 (क्लर्क या नौकर द्वारा चोरी) के तहत मुकदमा चलाया जाएगा, जिसमें 7 साल तक की कैद की सजा है।",
+        "sec_5_2": "5.2. बुजुर्गों के साथ दुर्व्यवहार: किसी भी वरिष्ठ नागरिक की लापरवाही या दुर्व्यवहार 'माता-पिता और वरिष्ठ नागरिकों के भरण-पोषण और कल्याण अधिनियम, 2007' के तहत दंडनीय अपराध है।",
+        "sec_6": "6. समाप्ति और नोटिस अवधि",
+        "sec_6_1": "6.1. देखभालकर्ता को इस्तीफा देने से पहले 30 दिनों का लिखित नोटिस देना होगा।",
+        "sec_6_2": "6.2. रोगी का परित्याग: रोगी को बीच में छोड़कर जाना एक गंभीर सुरक्षा उल्लंघन है। ऐसे मामलों में, एजेंसी सभी बकाया राशि जब्त कर लेगी और लापरवाही के लिए कानूनी कार्रवाई कर सकती है।",
+        "sec_7": "7. क्षतिपूर्ति",
+        "sec_7_text": "देखभालकर्ता अपनी लापरवाही या आपराधिक आचरण से उत्पन्न होने वाली किसी भी कानूनी कार्रवाई या नुकसान के खिलाफ एजेंसी की क्षतिपूर्ति करने के लिए सहमत है।",
+        "sec_8": "8. क्षेत्राधिकार",
+        "sec_8_text": "इस अनुबंध से उत्पन्न होने वाले सभी विवाद विशेष रूप से निम्नलिखित न्यायालयों के क्षेत्राधिकार के अधीन हैं:",
+        "witness": "साक्ष्य के रूप में, पार्टियों ने इस अनुबंध पर हस्ताक्षर किए हैं।",
+        "sign_caregiver": "देखभालकर्ता के हस्ताक्षर",
+        "sign_auth": "अधिकृत हस्ताक्षरकर्ता"
+    },
+    "Marathi": {
+        "title": "केअरगिव्हर सेवा करार (Caregiver Retainer Agreement)",
+        "subtitle": "सेवा करार आणि आचारसंहिता",
+        "agreement_made": "हा करार",
+        "on_date": "रोजी",
+        "between": "येथे",
+        "and": "आणि",
+        "agency_desc": "वेसाक केअर फाउंडेशन, कोल्हापूर येथे नोंदणीकृत कार्यालय असलेली फाउंडेशन कंपनी (यापुढे \"एजन्सी\" म्हणून संबोधले जाईल).",
+        "retainer_def": "(यापुढे \"रिटेनर\" म्हणून संबोधले जाईल)",
+        "whereas": "प्रस्तावना:",
+        "whereas_a": "A. एजन्सी व्यावसायिक रुग्ण सेवा आणि होम हेल्थ सेवा प्रदान करण्याच्या व्यवसायात आहे.",
+        "whereas_b": "B. रिटेनरने एजन्सीला असे दर्शविले आहे की त्यांच्याकडे अशा सेवा प्रदान करण्यासाठी आवश्यक कौशल्ये, प्रशिक्षण आणि शारीरिक तंदुरुस्ती आहे.",
+        "agreed": "म्हणून, खालीलप्रमाणे सहमती झाली आहे:",
+        "sec_1": "1. नियुक्तीचे स्वरूप",
+        "sec_1_1": "रिटेनरला कराराच्या आधारावर 'प्रोफेशनल रिटेनर' म्हणून नियुक्त केले आहे, कायमस्वरूपी कर्मचारी म्हणून नाही.",
+        "sec_1_2": "रिटेनरला समजते की एजन्सी रुग्ण आणि रिटेनर यांच्यात केवळ एक सुविधाकर्ता (Facilitator) म्हणून कार्य करते.",
+        "sec_2": "2. कर्तव्यांची व्याप्ती (कठोर पालन)",
+        "sec_2_intro": "रिटेनर फक्त खालील कर्तव्ये पार पाडण्यास सहमत आहे:",
+        "sec_2_1": "2.1 अपवाद कलम (घरगुती काम नाही):",
+        "sec_2_1_text": "रिटेनर स्पष्टपणे सहमत आहे की ते घरगुती कामगार (Maid) नाहीत. रिटेनर नम्रपणे परंतु ठामपणे खालील गोष्टी करण्यास नकार देईल:",
+        "refuse_list": ["कुटुंबासाठी भांडी किंवा कपडे धुणे.", "झाडू किंवा लादी पुसणे (रुग्णामुळे झालेली घाण वगळता).", "कुटुंबासाठी जेवण बनवणे.", "रुग्णाच्या आरोग्याशी संबंधित नसलेले कोणतेही कार्य."],
+        "sec_3": "3. अवैध शिकार विरोधी आणि नॉन-सॉलिसिटेशन (शून्य सहिष्णुता)",
+        "sec_3_1": "3.1 निर्बंध: केअरगिव्हर कबूल करतो की क्लायंट/रुग्णाची ओळख केवळ एजन्सीच्या प्रयत्नांतून आणि गुंतवणुकीतून झाली आहे.",
+        "sec_3_2": "3.2 प्रतिबंध: केअरगिव्हर सहमत आहे की या कराराच्या कार्यकाळात आणि एजन्सी सोडल्यानंतर 24 महिन्यांपर्यंत, ते:",
+        "prohibit_list": ["एजन्सीने ओळख करून दिलेल्या कोणत्याही क्लायंटकडून थेट रोजगार स्वीकारणार नाहीत.", "एजन्सीचे कमिशन टाळून क्लायंटला कमी दरात सेवा देणार नाहीत.", "एजन्सीला माहिती न देता क्लायंटकडून 'प्रायव्हेट ड्युटी' किंवा 'कॅश' स्वीकारणार नाहीत."],
+        "sec_3_3": "3.3 उल्लंघनाचा परिणाम:",
+        "breach_list": ["ब्लॅकलिस्टिंग: केअरगिव्हरला कायमस्वरूपी ब्लॅकलिस्ट केले जाईल आणि महाराष्ट्र होम हेल्थकेअर असोसिएशनला कळवले जाईल.", "जप्ती: एजन्सी सर्व प्रलंबित देयके, पगार आणि सुरक्षा ठेव त्वरित जप्त करेल.", "नुकसान भरपाई: व्यवसायाच्या नुकसानीसाठी भरपाई मागण्याचा अधिकार एजन्सी राखून ठेवते."],
+        "sec_4": "4. आचारसंहिता आणि शिस्त",
+        "sec_4_1": "4.1. गणवेश: ड्युटीवर असताना केअरगिव्हरने निर्धारित गणवेश आणि ओळखपत्र परिधान करणे आवश्यक आहे.",
+        "sec_4_2": "4.2. मोबाईलचा वापर: ड्युटीच्या वेळेत सोशल मीडिया (Reels/YouTube) किंवा व्हिडिओ कॉलसाठी मोबाईल फोनचा वापर करण्यास सक्त मनाई आहे.",
+        "sec_4_3": "4.3. व्यसन: ड्युटीवर दारू, तंबाखू, गुटखा किंवा ड्रग्सचे सेवन केल्यास त्वरित बडतर्फ केले जाईल.",
+        "sec_4_4": "4.4. आर्थिक सचोटी: केअरगिव्हरने क्लायंटकडून पैसे उधार घेऊ नयेत किंवा टिप्स/भेटवस्तू मागू नयेत.",
+        "sec_5": "5. फौजदारी दायित्व आणि कायदा",
+        "sec_5_text": "केअरगिव्हरला देशाच्या कायद्यांची जाणीव आहे:",
+        "sec_5_1": "5.1. चोरी: चोरीच्या (रोख, दागिने, औषधे) कोणत्याही कृत्यावर भारतीय दंड संहितेच्या कलम 381 (लिपीक किंवा नोकराने केलेली चोरी) अंतर्गत खटला चालवला जाईल, ज्यामध्ये 7 वर्षांपर्यंत तुरुंगवासाची शिक्षा आहे.",
+        "sec_5_2": "5.2. ज्येष्ठांचा छळ: कोणत्याही ज्येष्ठ नागरिकाची निष्काळजीपणा किंवा गैरवर्तन हा 'पालक आणि ज्येष्ठ नागरिकांचे देखभाल आणि कल्याण अधिनियम, 2007' अंतर्गत दंडनीय अपराध आहे.",
+        "sec_6": "6. समाप्ती आणि नोटीस कालावधी",
+        "sec_6_1": "6.1. राजीनामा देण्यापूर्वी केअरगिव्हरने 30 दिवसांची लेखी नोटीस देणे आवश्यक आहे.",
+        "sec_6_2": "6.2. रुग्ण सोडून जाणे: रुग्णाला ड्युटीच्या मध्यात सोडून जाणे हे गंभीर सुरक्षा उल्लंघन आहे. अशा प्रकरणांमध्ये, एजन्सी सर्व थकबाकी जप्त करेल आणि निष्काळजीपणासाठी कायदेशीर कारवाई करू शकते.",
+        "sec_7": "7. नुकसान भरपाई",
+        "sec_7_text": "केअरगिव्हर स्वतःच्या निष्काळजीपणामुळे किंवा गुन्हेगारी वर्तनामुळे उद्भवणाऱ्या कोणत्याही कायदेशीर कारवाई किंवा नुकसानीसाठी एजन्सीला भरपाई देण्यास सहमत आहे.",
+        "sec_8": "8. अधिकार क्षेत्र",
+        "sec_8_text": "या करारातून उद्भवणारे सर्व वाद केवळ खालील न्यायालयांच्या अधिकारक्षेत्राच्या अधीन आहेत:",
+        "witness": "साक्षीदार म्हणून, पक्षांनी या करारावर स्वाक्षरी केली आहे.",
+        "sign_caregiver": "केअरगिव्हरची स्वाक्षरी",
+        "sign_auth": "अधिकृत स्वाक्षरीकर्ता"
+    }
+}
+
+# 2. LOGIC TO GET DUTIES BASED ON PLAN
+def get_dynamic_duties(plan_name, sub_service, lang="English"):
+    """
+    Returns the Agreement Title and List of Duties based on the logic in 'Tab 5 Logic'.
+    Translations for duties are kept simple (headers mostly) as technical terms remain in English usually.
+    """
+    plan_clean = str(plan_name).strip()
+    sub_clean = str(sub_service).strip()
+    
+    title = plan_clean
+    duties = []
+    
+    # --- LOGIC BLOCK: PLAN A to E ---
+    if "Plan A" in plan_clean:
+        title = "Patient Care Service"
+        duties = [
+            "Perform Bed Bath/Sponge Bath, Diaper Changing with hygienic disposal, Oral Care & Denture Cleaning.",
+            "Execute Assisted Transfers (Bed to Chair/Wheelchair) and Turning & Positioning for Bed Sore Prevention.",
+            "Oral/Spoon feeding assistance and strict monitoring of water intake. Record BP, Sugar, and Temperature using the patient's device.",
+            "Maintain bed making and linen changing. Nail cutting, hair combing, and providing emotional support.",
+            "Strictly Non-Invasive (No Injections/IVs allowed)."
+        ]
+    elif "Plan B" in plan_clean:
+        title = "Nurse Service"
+        duties = [
+            "All duties of Patient Care Service (Plan A).",
+            "Administration of IV Fluids, Injections (IM/IV/SC) as per Doctor's prescription.",
+            "Ryle's Tube Feeding and Care, Catheter Care (Urobag changing), and Stoma Care.",
+            "Wound Dressing (Aseptic technique), Suctioning (Oral/Tracheal), and Oxygen administration.",
+            "Monitoring of critical vitals and maintaining clinical charts."
+        ]
+    elif "Plan C" in plan_clean:
+        title = "Chronic and Holistic Healthcare Service"
+        duties = [
+            "Comprehensive management of chronic conditions (Dementia, Alzheimer's, Parkinson's).",
+            "Assistance with Activities of Daily Living (ADLs) with a focus on dignity.",
+            "Medication management and adherence monitoring.",
+            "Prevention of complications (bedsores, aspiration, falls).",
+            "Cognitive stimulation and companionship."
+        ]
+    elif "Plan D" in plan_clean:
+        title = "Elderly and Well-being Care"
+        duties = [
+            "Companionship and emotional support.",
+            "Assistance with mobility and fall prevention.",
+            "Light meal preparation and medication reminders.",
+            "Accompaniment to doctors visits or social walks.",
+            "General safety supervision."
+        ]
+    elif "Plan E" in plan_clean:
+        title = "Maternal & Newborn - Support for Women during and after Pregnancy"
+        duties = [
+            "Newborn Care: Bathing, massage, burping, and cord care.",
+            "Mother Care: Postnatal wound care (Episiotomy/C-Section), lactation support.",
+            "Sterilization of feeding bottles and hygiene management.",
+            "Monitoring baby's sleep and feeding schedule."
+        ]
+        
+    # --- LOGIC BLOCK: PLAN F (REHABILITATIVE) ---
+    elif "Plan F" in plan_clean:
+        title = f"Rehabilitative Care for {sub_clean}"
+        duties = [
+            f"**Primary Focus Area:** {sub_clean}",
+            "One or Combinations of:",
+            "Manual Therapy (Maitland/Mulligan Mobilization)",
+            "Soft Tissue Release/Massage",
+            "Kinesio-Taping application (Tape provided by client)",
+            "Ergonomic & Postural Correction",
+            "Cryotherapy/Heat application (using home packs)."
+        ]
+        
+    # --- LOGIC BLOCK: A-LA-CARTE ---
+    elif "A-la-carte" in plan_clean or "Other Service" in plan_clean:
+        title = f"Other Service - {sub_clean}"
+        duties = [
+            f"Execution of specific service: **{sub_clean}**",
+            "Adherence to strict hygiene and safety protocols.",
+            "Reporting of service outcome to the Agency.",
+            "Coordination with family for safe execution."
+        ]
+    else:
+        # Fallback
+        title = plan_clean
+        duties = ["Duties as assigned by the Agency supervisor based on patient assessment."]
+
+    # If Lang is Hindi/Marathi, we append a small note (Full translation of technical medical duties is complex/risky)
+    if lang != "English":
+        duties.append(f"(Duties listed in English for medical accuracy / वैद्यकीय अचूकतेसाठी कर्तव्ये इंग्रजीत सूचीबद्ध आहेत)")
+
+    return title, duties
+
+# 3. HTML GENERATOR FUNCTION
+def generate_agreement_html(data, lang="English"):
+    t = AGREEMENT_I18N.get(lang, AGREEMENT_I18N["English"])
+    
+    # Unpack Data
+    city = data.get("city", "Mumbai")
+    date_str = data.get("date", "")
+    nurse_name = data.get("nurse_name", "")
+    nurse_age = data.get("nurse_age", "")
+    nurse_aad = data.get("nurse_aadhar", "")
+    nurse_addr = data.get("nurse_addr", "")
+    role = data.get("role", "Caregiver") # Nurse/Attendant/Physio
+    
+    # Dynamic Duties
+    srv_title, duties_list = get_dynamic_duties(data.get("plan", ""), data.get("sub_service", ""), lang)
+    
+    # Build Duties HTML
+    duties_html = ""
+    for d in duties_list:
+        duties_html += f"<li class='mb-1'>{d}</li>"
+        
+    # Build Exclusion List HTML
+    refuse_html = ""
+    for r in t["refuse_list"]:
+        refuse_html += f"<li>{r}</li>"
+        
+    # Build Prohibit List HTML
+    prohibit_html = ""
+    for p in t["prohibit_list"]:
+        prohibit_html += f"<li>{p}</li>"
+        
+    # Build Breach List HTML
+    breach_html = ""
+    for b in t["breach_list"]:
+        parts = b.split(":", 1)
+        if len(parts) > 1:
+            breach_html += f"<li><b>{parts[0]}:</b>{parts[1]}</li>"
+        else:
+            breach_html += f"<li>{b}</li>"
+
+    # Signature Block (Company Stamp Logic)
+    # Using simple HTML/CSS for the stamp overlay
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@700&display=swap');
+            body {{ font-family: 'Lato', sans-serif; font-size: 11pt; line-height: 1.4; color: #333; }}
+            h1, h2, h3, h4 {{ font-family: 'Playfair Display', serif; color: #002147; }}
+            .agreement-box {{ max-width: 210mm; margin: 0 auto; background: white; padding: 40px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
+            ul {{ padding-left: 20px; }}
+            li {{ margin-bottom: 4px; }}
+            .stamp-container {{ position: relative; width: 200px; height: 100px; margin-top: 10px; }}
+            .stamp-box {{ position: absolute; top: 0; left: 0; width: 100%; border-bottom: 1px solid #333; }}
+            .stamp-img {{ position: absolute; top: -30px; left: 20px; width: 100px; opacity: 0.8; transform: rotate(-10deg); }}
+            .sign-img {{ position: absolute; top: -20px; left: 40px; width: 120px; z-index: 10; }}
+            @media print {{ .agreement-box {{ box-shadow: none; padding: 0; }} }}
+        </style>
+    </head>
+    <body class="bg-gray-100 py-10">
+    <div class="agreement-box" id="agreement-content">
+        <div class="text-center border-b-2 border-vesak-navy pb-4 mb-6">
+            <h1 class="text-2xl font-bold uppercase tracking-wider">{t['title']}</h1>
+            <h3 class="text-md font-bold text-gray-500 uppercase mt-1">{t['subtitle']}</h3>
+        </div>
+
+        <div class="mb-4">
+            <p><strong>{t['agreement_made']}</strong> {city}, Maharashtra <strong>{t['on_date']}</strong> {date_str}.</p>
+        </div>
+
+        <div class="mb-4">
+            <p class="font-bold text-center mb-2">{t['between']}</p>
+            <p>{t['agency_desc']}</p>
+        </div>
+
+        <div class="mb-6">
+            <p class="font-bold text-center mb-2">{t['and']}</p>
+            <p>
+                <strong>Mr./Ms. {nurse_name}</strong>, Age: [{nurse_age}], Aadhar No: [{nurse_aad}],<br>
+                Residing at: {nurse_addr}<br>
+                {t['retainer_def']} <strong>"{role.upper()} / RETAINER"</strong>.
+            </p>
+        </div>
+
+        <div class="mb-6">
+            <p class="font-bold">{t['whereas']}</p>
+            <p>{t['whereas_a']}</p>
+            <p>{t['whereas_b'].replace('Retainer', role)}</p>
+        </div>
+
+        <p class="font-bold uppercase mb-4 text-center">{t['agreed']}</p>
+
+        <div class="space-y-4">
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_1']}</h4>
+                <p>1.1. {t['sec_1_1'].replace('Retainer', role)}</p>
+                <p>1.2. {t['sec_1_2'].replace('Retainer', role)}</p>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_2']}</h4>
+                <p class="font-bold text-vesak-gold">{srv_title}</p>
+                <p>{t['sec_2_intro'].replace('Retainer', role)}</p>
+                <ul class="list-disc text-sm mt-2 bg-gray-50 p-2 rounded">{duties_html}</ul>
+                
+                <p class="mt-3"><strong>{t['sec_2_1']}</strong></p>
+                <p>{t['sec_2_1_text'].replace('Retainer', role)}</p>
+                <ul class="list-disc text-sm text-red-700">{refuse_html}</ul>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_3']}</h4>
+                <p><strong>{t['sec_3_1']}</strong></p>
+                <p><strong>{t['sec_3_2']}</strong></p>
+                <ul class="list-disc text-sm">{prohibit_html}</ul>
+                <p class="mt-2"><strong>{t['sec_3_3']}</strong></p>
+                <ul class="list-disc text-sm">{breach_html}</ul>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_4']}</h4>
+                <p>{t['sec_4_1']}</p>
+                <p>{t['sec_4_2']}</p>
+                <p>{t['sec_4_3']}</p>
+                <p>{t['sec_4_4']}</p>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_5']}</h4>
+                <p>{t['sec_5_text']}</p>
+                <p>{t['sec_5_1']}</p>
+                <p>{t['sec_5_2']}</p>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_6']}</h4>
+                <p>{t['sec_6_1']}</p>
+                <p>{t['sec_6_2']}</p>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_7']}</h4>
+                <p>{t['sec_7_text']}</p>
+            </div>
+
+            <div>
+                <h4 class="font-bold uppercase text-sm border-b border-gray-300 inline-block mb-2">{t['sec_8']}</h4>
+                <p>{t['sec_8_text']} <strong>{city}</strong>, Maharashtra.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-4 border-t-2 border-gray-800">
+            <p class="font-bold text-center uppercase">{t['witness']}</p>
+        </div>
+
+        <div class="flex justify-between items-start mt-12">
+            <div class="w-1/3">
+                <p class="font-bold uppercase mb-8">{t['sign_caregiver']}</p>
+                <div class="border-b border-black w-full h-8"></div>
+                <p class="text-xs mt-1">Date: _________________</p>
+            </div>
+            <div class="w-1/3">
+                <p class="font-bold uppercase mb-2">{t['sign_auth']}</p>
+                <div class="stamp-container">
+                    <div class="text-xs text-gray-400 absolute top-4 left-4">[Stamp & Signature]</div>
+                    <div class="stamp-box"></div>
+                    <p class="text-xs mt-1">For Vesak Care Foundation</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    
+    <script>
+        function generatePDF() {{
+            const element = document.getElementById('agreement-content');
+            const opt = {{
+                margin: [5, 5, 5, 5],
+                filename: '{generate_filename("Nurse", "AGR", nurse_name)}',
+                image: {{ type: 'jpeg', quality: 0.98 }},
+                html2canvas: {{ scale: 2, useCORS: true }},
+                jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+            }};
+            html2pdf().set(opt).from(element).save();
+        }}
+    </script>
+    </body>
+    </html>
+    """
+    return html
+
+# ==========================================
 # CORE INVOICE FUNCTION - render_invoice_ui()
 # ==========================================
 def render_invoice_ui(df_main, mode="standard"):
@@ -2316,52 +2751,150 @@ if raw_file_obj:
                     st.error(f"Connection Error: {e}")
 
         with tab5:
-            st.header("📝 Create Agreements")
+            st.header("📝 Create Agreements (Nurse/Patient)")
             
-            use_filt_ag = st.checkbox("🔍 Enable Search Filters (Date/Location)", key="use_filt_ag")
-            df_ag = df.copy()
+            # --- 1. Selection & Filtering ---
+            col_sel_1, col_sel_2 = st.columns([1, 2])
             
-            if use_filt_ag:
-                c1, c2 = st.columns(2)
-                with c1: f_dt = st.date_input("Filter Date:", value=datetime.date.today(), key="ag_dt")
-                with c2: 
+            with col_sel_1:
+                use_filt_ag = st.checkbox("🔍 Enable Filters", key="use_filt_ag")
+                if use_filt_ag:
+                    f_dt = st.date_input("Filter Date:", value=datetime.date.today(), key="ag_dt")
                     u_locs = ["All"] + sorted(list(df['Location'].astype(str).unique()))
                     f_lc = st.selectbox("Filter Location:", u_locs, key="ag_lc")
                 
-                if 'Call Date' in df_ag.columns:
-                    df_ag['TempDate'] = pd.to_datetime(df_ag['Call Date'], errors='coerce').dt.date
-                    df_ag = df_ag[df_ag['TempDate'] == f_dt]
-                if f_lc != "All": df_ag = df_ag[df_ag['Location'].astype(str) == f_lc]
-            
-            df_ag['Ref_Clean'] = df_ag['Ref. No.'].astype(str).str.strip()
-            df_ag['Label'] = df_ag['Name'].astype(str) + " (" + df_ag['Mobile'].astype(str) + ")"
-            
-            if df_ag.empty: st.warning("No customers found.")
-            else:
-                sel_cust_ag = st.selectbox("Select Customer for Agreement:", [""] + list(df_ag['Label'].unique()), key="sel_ag")
-                if sel_cust_ag:
-                    row_ag = df_ag[df_ag['Label'] == sel_cust_ag].iloc[0]
-                    st.info(f"Selected: {row_ag['Name']} | Ref: {normalize_id(row_ag.get('Ref. No.'))}")
+                # Filter Data
+                df_ag = df.copy()
+                if use_filt_ag:
+                    if 'Call Date' in df_ag.columns:
+                        df_ag['TempDate'] = pd.to_datetime(df_ag['Call Date'], errors='coerce').dt.date
+                        df_ag = df_ag[df_ag['TempDate'] == f_dt]
+                    if f_lc != "All":
+                        df_ag = df_ag[df_ag['Location'].astype(str) == f_lc]
+                        
+                df_ag['Label'] = df_ag['Name'].astype(str) + " (" + df_ag['Mobile'].astype(str) + ")"
+                
+                sel_cust_ag = st.selectbox("Select Customer:", [""] + list(df_ag['Label'].unique()), key="sel_ag")
+
+            # --- 2. Input Form (Visible only upon selection) ---
+            if sel_cust_ag:
+                row_ag = df_ag[df_ag['Label'] == sel_cust_ag].iloc[0]
+                
+                # Extract Base Data
+                c_plan = str(row_ag.get('Service Required', ''))
+                c_sub = str(row_ag.get('Sub Service', ''))
+                c_ref_name = str(row_ag.get('Referral Name', '')) # Nurse Name Source
+                c_ref_name_extra = str(row_ag.get('Referral Name', '')) # Fallback for extra
+                c_loc = str(row_ag.get('Location', ''))
+                c_date_raw = row_ag.get('Date', datetime.date.today())
+                c_formatted_date = format_date_with_suffix(c_date_raw)
+                
+                # Determine Role based on Plan
+                role_default = "Caregiver"
+                is_physio = False
+                is_attendant = False
+                
+                if "Plan B" in c_plan: role_default = "Nurse"
+                elif "Plan F" in c_plan: 
+                    role_default = "Physiotherapist"
+                    is_physio = True
+                elif "A-la-carte" in c_plan: 
+                    role_default = "Attendant"
+                    is_attendant = True
+                else: 
+                    # Default list for Plan A, C, D, E
+                    role_default = "Nurse" 
+
+                with col_sel_2:
+                    st.info(f"**Selected Plan:** {c_plan} | **Sub Service:** {c_sub}")
+                    st.success(f"**Auto-Detected Role:** {role_default}")
+
+                st.divider()
+                st.subheader("1. Agreement Details Input")
+                
+                # Dynamic Role Selection (User can override)
+                role_options = ["Nurse", "Caregiver", "Attendant", "Physiotherapist"]
+                if role_default not in role_options: role_options.append(role_default)
+                
+                col_inp_1, col_inp_2, col_inp_3 = st.columns(3)
+                
+                with col_inp_1:
+                    sel_role = st.selectbox("Select Role Title:", role_options, index=role_options.index(role_default), key="role_sel")
                     
-                    c_ref_ag = normalize_id(row_ag.get('Ref. No.', ''))
-                    pdf_date_str = format_date_with_suffix(datetime.date.today())
+                    # Logic: Name Field Label
+                    name_label = f"{sel_role} Name"
+                    val_name = c_ref_name # Default from Referral Name
+                    in_nurse_name = st.text_input(name_label, value=val_name, key="in_nn")
                     
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1: 
-                        if st.button("Nurse Agreement", key="btn_nu_ag"):
-                            display_type = "NURSE AGREEMENT"
-                            file_name = generate_filename("Nurse", "AGR", row_ag['Name'])
-                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
-                            pdf_bytes = convert_html_to_pdf(html_content)
-                            if pdf_bytes: st.download_button(f"⬇️ Download Nurse Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+                    in_nurse_age = st.text_input("Age:", key="in_na")
+                    in_nurse_aad = st.text_input("Aadhar No:", key="in_nad")
                     
-                    with col_b2: 
-                        if st.button("Patient Agreement", key="btn_pa_ag"):
-                            display_type = "PATIENT AGREEMENT"
-                            file_name = generate_filename("Patient", "AGR", row_ag['Name'])
-                            html_content = f"""<!DOCTYPE html><html><head><style>@page {{ size: a4 portrait; margin: 1cm; }} body {{ font-family: 'Helvetica', sans-serif; }} .header {{ text-align: center; }}</style></head><body><div class="header"><img src="data:image/png;base64,{logo_b64}" width="100"><h2>Vesak Care Foundation</h2></div><h3>{display_type}</h3><p><strong>Ref:</strong> {c_ref_ag}</p><p><strong>Date:</strong> {pdf_date_str}</p><br><br><br><p>Authorized Signatory</p></body></html>"""
-                            pdf_bytes = convert_html_to_pdf(html_content)
-                            if pdf_bytes: st.download_button(f"⬇️ Download Patient Agreement", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+                with col_inp_2:
+                    st.write("📍 **Location Details**")
+                    in_city = st.text_input("City (e.g., Mumbai/Pune):", value=c_loc, key="in_ct")
+                    in_date_str = st.text_input("Agreement Date Text:", value=c_formatted_date, help="e.g., 25th day of Jan, 2026", key="in_dt")
+                    in_nurse_addr = st.text_area("Residing Address:", height=100, key="in_adr")
+
+                with col_inp_3:
+                    # EXTRA FIELDS (Conditional)
+                    # Logic: Remove Extra boxes if Plan F or A-la-carte
+                    if not (is_physio or is_attendant):
+                        st.write("➕ **Extra Staff (Optional)**")
+                        in_extra_name = st.text_input(f"{sel_role} Name (Extra):", key="in_ex_n")
+                        in_extra_age = st.text_input("Age (Extra):", key="in_ex_a")
+                        in_extra_aad = st.text_input("Aadhar (Extra):", key="in_ex_aad")
+                        in_extra_addr = st.text_area("Address (Extra):", height=68, key="in_ex_adr")
+                    else:
+                        st.empty() # Placeholder to keep layout aligned
+
+                # --- 2. Generation & Preview ---
+                st.divider()
+                st.subheader("2. Generate Document")
+                
+                lang_sel = st.radio("Select Document Language:", ["English", "Hindi", "Marathi"], horizontal=True)
+                
+                # Combine Data for Generator
+                data_packet = {
+                    "city": in_city,
+                    "date": in_date_str,
+                    "nurse_name": in_nurse_name,
+                    "nurse_age": in_nurse_age,
+                    "nurse_aadhar": in_nurse_aad,
+                    "nurse_addr": in_nurse_addr,
+                    "role": sel_role,
+                    "plan": c_plan,
+                    "sub_service": c_sub
+                }
+                
+                # Append Extra info if exists
+                if not (is_physio or is_attendant) and 'in_extra_name' in locals() and in_extra_name:
+                    data_packet["nurse_name"] += f" & {in_extra_name}"
+                    if in_extra_age: data_packet["nurse_age"] += f" / {in_extra_age}"
+                    if in_extra_aad: data_packet["nurse_aadhar"] += f" / {in_extra_aad}"
+                    if in_extra_addr: data_packet["nurse_addr"] += f" & {in_extra_addr}"
+
+                # Generate HTML
+                html_preview = generate_agreement_html(data_packet, lang=lang_sel)
+                
+                # Show Buttons
+                c_btn_1, c_btn_2 = st.columns([1, 4])
+                with c_btn_1:
+                    # Using HTML/JS print within the component is safer for local download
+                    # We render a hidden button in the HTML logic, but here is a backup Streamlit button
+                    # Converting to PDF bytes for streamlit download button
+                    pdf_bytes = convert_html_to_pdf(html_preview)
+                    if pdf_bytes:
+                        fname = generate_filename("Nurse", "AGR", in_nurse_name)
+                        st.download_button(
+                            label=f"⬇️ Download PDF ({lang_sel})",
+                            data=pdf_bytes,
+                            file_name=fname,
+                            mime="application/pdf",
+                            type="primary"
+                        )
+                
+                # Render Preview
+                st.markdown("### 📄 Document Preview")
+                components.html(html_preview, height=1200, scrolling=True)
 
     except Exception as e: st.error(f"Error: {e}")
-
