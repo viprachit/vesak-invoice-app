@@ -560,7 +560,8 @@ def get_base_lists(selected_plan, selected_sub_service):
         # Search for keyword in map keys
         for key, desc in PLAN_F_DETAILS.items():
             if key.lower() in sub_check.lower():
-                return [desc], [] # Return description as a single item list, no exclusions
+                # ⭐ CRITICAL FIX: Removed brackets [] around desc
+                return desc, [] 
         # Fallback if no specific sub-service matched in map
         return ["Rehabilitative Care Assessment and Therapy Session"], []
 
@@ -569,7 +570,8 @@ def get_base_lists(selected_plan, selected_sub_service):
         sub_check = str(selected_sub_service).strip()
         for key, desc in ALACARTE_DETAILS.items():
             if key.lower() in sub_check.lower():
-                return [desc], [] 
+                # ⭐ CRITICAL FIX: Removed brackets [] around desc
+                return desc, [] 
         return [f"Service: {sub_check}"], []
 
     # 4C. Standard Logic for Plans A-E
