@@ -1,0 +1,26 @@
+<h2>Invoice</h2>
+<hr>
+
+<p><strong>Client Name:</strong> {{ client.name }}</p>
+
+{% if client.address %}
+<p><strong>Address:</strong><br>{{ client.address }}</p>
+{% endif %}
+
+{% if client.phone %}
+<p><strong>Phone:</strong> {{ client.phone }}</p>
+{% endif %}
+
+{% if client.email %}
+<p><strong>Email:</strong> {{ client.email }}</p>
+{% endif %}
+
+{% if client.notes %}
+<hr>
+<p><strong>Notes:</strong><br>{{ client.notes }}</p>
+{% endif %}
+
+<hr>
+<p style="color: #888;">
+    Invoice layout will be enhanced later. This confirms data + rendering works.
+</p>
