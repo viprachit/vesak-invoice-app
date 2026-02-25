@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: vesak-invoice-control-hub
+    name: vesak-app-control-hub
     env: docker
     plan: free
     region: ohio
